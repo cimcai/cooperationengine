@@ -162,6 +162,52 @@ export const insertArenaMatchSchema = z.object({
 
 export type InsertArenaMatch = z.infer<typeof insertArenaMatchSchema>;
 
+// Apocalypse Toolkit - AI survival designs
+export const toolkitItems = pgTable("toolkit_items", {
+  id: varchar("id").primaryKey(),
+  name: text("name").notNull(),
+  aiModel: varchar("ai_model").notNull(),
+  weight: text("weight").notNull(),
+  energy: text("energy").notNull(),
+  formFactor: text("form_factor").notNull(),
+  capabilities: jsonb("capabilities").notNull().$type<string[]>(),
+  knowledge: jsonb("knowledge").notNull().$type<string[]>(),
+  interaction: text("interaction").notNull(),
+  limitations: text("limitations"),
+  reasoning: text("reasoning"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface ToolkitItem {
+  id: string;
+  name: string;
+  aiModel: string;
+  weight: string;
+  energy: string;
+  formFactor: string;
+  capabilities: string[];
+  knowledge: string[];
+  interaction: string;
+  limitations?: string;
+  reasoning?: string;
+  createdAt: string;
+}
+
+export const insertToolkitItemSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  aiModel: z.string().min(1, "AI model is required"),
+  weight: z.string().min(1, "Weight is required"),
+  energy: z.string().min(1, "Energy requirements are required"),
+  formFactor: z.string().min(1, "Form factor is required"),
+  capabilities: z.array(z.string()).min(1, "At least one capability is required"),
+  knowledge: z.array(z.string()).min(1, "At least one knowledge domain is required"),
+  interaction: z.string().min(1, "Interaction method is required"),
+  limitations: z.string().optional(),
+  reasoning: z.string().optional(),
+});
+
+export type InsertToolkitItem = z.infer<typeof insertToolkitItemSchema>;
+
 // User schema (keeping for compatibility)
 export interface User {
   id: string;

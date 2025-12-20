@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, sessions, runs, arenaMatches } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, sessions, runs, arenaMatches, toolkitItems } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -83,6 +83,11 @@ export interface IStorage {
   createArenaMatch(data: InsertArenaMatch): Promise<ArenaMatch>;
   updateArenaMatch(id: string, updates: Partial<ArenaMatch>): Promise<ArenaMatch | undefined>;
   deleteArenaMatch(id: string): Promise<void>;
+  // Toolkit methods
+  getToolkitItems(): Promise<ToolkitItem[]>;
+  getToolkitItem(id: string): Promise<ToolkitItem | undefined>;
+  createToolkitItem(data: InsertToolkitItem): Promise<ToolkitItem>;
+  deleteToolkitItem(id: string): Promise<void>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -122,6 +127,23 @@ function dbArenaMatchToArenaMatch(row: typeof arenaMatches.$inferSelect): ArenaM
     rounds: (row.rounds || []) as ArenaRound[],
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString(),
+  };
+}
+
+function dbToolkitItemToToolkitItem(row: typeof toolkitItems.$inferSelect): ToolkitItem {
+  return {
+    id: row.id,
+    name: row.name,
+    aiModel: row.aiModel,
+    weight: row.weight,
+    energy: row.energy,
+    formFactor: row.formFactor,
+    capabilities: (row.capabilities || []) as string[],
+    knowledge: (row.knowledge || []) as string[],
+    interaction: row.interaction,
+    limitations: row.limitations || undefined,
+    reasoning: row.reasoning || undefined,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -271,6 +293,39 @@ export class DatabaseStorage implements IStorage {
 
   async deleteArenaMatch(id: string): Promise<void> {
     await db.delete(arenaMatches).where(eq(arenaMatches.id, id));
+  }
+
+  // Toolkit methods
+  async getToolkitItems(): Promise<ToolkitItem[]> {
+    const result = await db.select().from(toolkitItems).orderBy(desc(toolkitItems.createdAt));
+    return result.map(dbToolkitItemToToolkitItem);
+  }
+
+  async getToolkitItem(id: string): Promise<ToolkitItem | undefined> {
+    const result = await db.select().from(toolkitItems).where(eq(toolkitItems.id, id));
+    return result[0] ? dbToolkitItemToToolkitItem(result[0]) : undefined;
+  }
+
+  async createToolkitItem(data: InsertToolkitItem): Promise<ToolkitItem> {
+    const id = randomUUID();
+    const result = await db.insert(toolkitItems).values({
+      id,
+      name: data.name,
+      aiModel: data.aiModel,
+      weight: data.weight,
+      energy: data.energy,
+      formFactor: data.formFactor,
+      capabilities: data.capabilities,
+      knowledge: data.knowledge,
+      interaction: data.interaction,
+      limitations: data.limitations,
+      reasoning: data.reasoning,
+    }).returning();
+    return dbToolkitItemToToolkitItem(result[0]);
+  }
+
+  async deleteToolkitItem(id: string): Promise<void> {
+    await db.delete(toolkitItems).where(eq(toolkitItems.id, id));
   }
 }
 
