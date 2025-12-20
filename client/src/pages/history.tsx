@@ -32,9 +32,11 @@ import {
   Loader2,
   FileJson,
   FileSpreadsheet,
-  History as HistoryIcon
+  History as HistoryIcon,
+  Grid3X3,
 } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
+import { Link } from "wouter";
 import type { Run, Session, Chatbot } from "@shared/schema";
 
 interface HistoryItem {
@@ -234,6 +236,15 @@ export default function HistoryPage() {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
+                            <Link href={`/results/${item.session.id}`}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                data-testid={`button-grid-${item.run.id}`}
+                              >
+                                <Grid3X3 className="h-4 w-4" />
+                              </Button>
+                            </Link>
                             <Button
                               variant="ghost"
                               size="icon"

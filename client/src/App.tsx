@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import ComposePage from "@/pages/compose";
 import HistoryPage from "@/pages/history";
 import SettingsPage from "@/pages/settings";
+import ResultsPage from "@/pages/results";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -16,6 +17,7 @@ function Router() {
     <Switch>
       <Route path="/" component={ComposePage} />
       <Route path="/history" component={HistoryPage} />
+      <Route path="/results/:sessionId" component={ResultsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>

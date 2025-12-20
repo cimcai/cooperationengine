@@ -300,6 +300,35 @@ export async function registerRoutes(
     }
   });
 
+  // Get all runs for a session (for results grid)
+  app.get("/api/sessions/:id/results", async (req, res) => {
+    try {
+      const session = await storage.getSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      
+      const runs = await storage.getRunsBySession(req.params.id);
+      
+      // Get prompts excluding system prompts for round labels
+      const userPrompts = session.prompts
+        .filter(p => p.role !== "system")
+        .sort((a, b) => a.order - b.order);
+      
+      res.json({
+        session,
+        runs: runs.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()),
+        roundLabels: userPrompts.map((p, i) => ({
+          round: i,
+          prompt: p.content,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching session results:", error);
+      res.status(500).json({ error: "Failed to fetch session results" });
+    }
+  });
+
   // Get history (runs with sessions)
   app.get("/api/history", async (req, res) => {
     try {
