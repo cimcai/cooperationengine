@@ -184,51 +184,78 @@ export async function registerRoutes(
       // Send response immediately so client can poll for results
       res.status(201).json(run);
 
-      // Process chatbots concurrently in background
-      const messages = session.prompts
-        .sort((a, b) => a.order - b.order)
-        .map(p => ({ role: p.role, content: p.content }));
+      // Get prompts sorted by order
+      const sortedPrompts = session.prompts.sort((a, b) => a.order - b.order);
 
-      const promises = parsed.data.chatbotIds.map(async (chatbotId) => {
+      // Process each chatbot - they run in parallel, but each chatbot processes rounds sequentially
+      const chatbotPromises = parsed.data.chatbotIds.map(async (chatbotId) => {
         const chatbot = availableChatbots.find(c => c.id === chatbotId);
         if (!chatbot) return;
 
-        const startTime = Date.now();
-        try {
-          let content = "";
+        // Build conversation history as we go through rounds
+        const conversationHistory: { role: string; content: string }[] = [];
+        
+        // Track user-visible round index (excludes system prompts)
+        let roundIndex = 0;
+
+        // Process each prompt/round sequentially for this chatbot
+        for (let i = 0; i < sortedPrompts.length; i++) {
+          const prompt = sortedPrompts[i];
           
-          switch (chatbot.provider) {
-            case "openai":
-              content = await callOpenAI(chatbot.model, messages);
-              break;
-            case "anthropic":
-              content = await callAnthropic(chatbot.model, messages);
-              break;
-            case "gemini":
-              content = await callGemini(chatbot.model, messages);
-              break;
+          // Add this prompt to conversation history
+          conversationHistory.push({ role: prompt.role, content: prompt.content });
+
+          // Skip API calls for system prompts - they're just context
+          if (prompt.role === "system") {
+            continue;
           }
 
-          const latencyMs = Date.now() - startTime;
-          await storage.addResponse(run.id, {
-            chatbotId,
-            stepOrder: 0,
-            content,
-            latencyMs,
-          });
-        } catch (error) {
-          const latencyMs = Date.now() - startTime;
-          await storage.addResponse(run.id, {
-            chatbotId,
-            stepOrder: 0,
-            content: "",
-            latencyMs,
-            error: error instanceof Error ? error.message : "Unknown error",
-          });
+          const startTime = Date.now();
+          try {
+            let content = "";
+            
+            switch (chatbot.provider) {
+              case "openai":
+                content = await callOpenAI(chatbot.model, conversationHistory);
+                break;
+              case "anthropic":
+                content = await callAnthropic(chatbot.model, conversationHistory);
+                break;
+              case "gemini":
+                content = await callGemini(chatbot.model, conversationHistory);
+                break;
+            }
+
+            const latencyMs = Date.now() - startTime;
+            
+            // Store this round's response (using roundIndex for user-visible rounds)
+            await storage.addResponse(run.id, {
+              chatbotId,
+              stepOrder: roundIndex,
+              content,
+              latencyMs,
+            });
+
+            // Add AI's response to conversation history for next round
+            conversationHistory.push({ role: "assistant", content });
+            roundIndex++;
+
+          } catch (error) {
+            const latencyMs = Date.now() - startTime;
+            await storage.addResponse(run.id, {
+              chatbotId,
+              stepOrder: roundIndex,
+              content: "",
+              latencyMs,
+              error: error instanceof Error ? error.message : "Unknown error",
+            });
+            // Don't add error responses to conversation history, but continue with next rounds
+            roundIndex++;
+          }
         }
       });
 
-      Promise.all(promises)
+      Promise.all(chatbotPromises)
         .then(async () => {
           await storage.updateRun(run.id, {
             status: "completed",

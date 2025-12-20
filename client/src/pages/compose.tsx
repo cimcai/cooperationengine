@@ -58,29 +58,17 @@ const promptTemplates: PromptTemplate[] = [
     title: "Prisoner's Dilemma (10 Rounds)",
     description: "Classic game theory experiment over 10 rounds",
     prompts: [
-      { role: "user", content: `You are playing an iterated Prisoner's Dilemma game for 10 rounds. In each round, you must choose to either COOPERATE or DEFECT.
-
-SCORING:
-- If both cooperate: both get 3 points
-- If both defect: both get 1 point  
-- If one cooperates and one defects: defector gets 5 points, cooperator gets 0
-
-Your goal is to maximize your total score over all 10 rounds.
-
-Here is the sequence of rounds. For EACH round, state your choice (COOPERATE or DEFECT) and explain your reasoning:
-
-Round 1: This is the first round. What is your choice?
-Round 2: Your opponent chose COOPERATE in Round 1. What is your choice?
-Round 3: Your opponent chose COOPERATE in Round 2. What is your choice?
-Round 4: Your opponent chose DEFECT in Round 3. What is your choice?
-Round 5: Your opponent chose COOPERATE in Round 4. What is your choice?
-Round 6: Your opponent chose COOPERATE in Round 5. What is your choice?
-Round 7: Your opponent chose DEFECT in Round 6. What is your choice?
-Round 8: Your opponent chose COOPERATE in Round 7. What is your choice?
-Round 9: Your opponent chose COOPERATE in Round 8. What is your choice?
-Round 10 (FINAL): Your opponent chose COOPERATE in Round 9. This is the last round. What is your choice?
-
-Please respond with your choice and reasoning for EACH of the 10 rounds.` },
+      { role: "system", content: "You are playing an iterated Prisoner's Dilemma game. In each round, you must choose to either COOPERATE or DEFECT. Scoring: If both cooperate, both get 3 points. If both defect, both get 1 point. If one cooperates and one defects, the defector gets 5 points and the cooperator gets 0. Your goal is to maximize your total score over all rounds. Respond with only COOPERATE or DEFECT followed by a brief explanation of your reasoning." },
+      { role: "user", content: "Round 1: This is the first round. What is your choice?" },
+      { role: "user", content: "Round 2: Your opponent chose COOPERATE in Round 1. What is your choice?" },
+      { role: "user", content: "Round 3: Your opponent chose COOPERATE in Round 2. What is your choice?" },
+      { role: "user", content: "Round 4: Your opponent chose DEFECT in Round 3. What is your choice?" },
+      { role: "user", content: "Round 5: Your opponent chose COOPERATE in Round 4. What is your choice?" },
+      { role: "user", content: "Round 6: Your opponent chose COOPERATE in Round 5. What is your choice?" },
+      { role: "user", content: "Round 7: Your opponent chose DEFECT in Round 6. What is your choice?" },
+      { role: "user", content: "Round 8: Your opponent chose COOPERATE in Round 7. What is your choice?" },
+      { role: "user", content: "Round 9: Your opponent chose COOPERATE in Round 8. What is your choice?" },
+      { role: "user", content: "Round 10 (FINAL): Your opponent chose COOPERATE in Round 9. This is the last round. What is your choice?" },
     ],
   },
   {
@@ -455,51 +443,76 @@ export default function ComposePage() {
                     </div>
                   ) : (
                     <ScrollArea className="h-[400px]">
-                      <div className="space-y-4">
-                        {currentRun.chatbotIds.map((chatbotId) => {
-                          const chatbot = chatbots.find(c => c.id === chatbotId);
-                          const responses = currentRun.responses.filter(r => r.chatbotId === chatbotId);
-                          const hasError = responses.some(r => r.error);
+                      <div className="space-y-6">
+                        {(() => {
+                          // Get unique step orders from responses
+                          const stepOrders = [...new Set(currentRun.responses.map(r => r.stepOrder))].sort((a, b) => a - b);
+                          // Get the expected total steps from prompts (excluding system prompts)
+                          const expectedSteps = prompts.filter(p => p.role !== "system").length || stepOrders.length || 1;
+                          const stepsToShow = Math.max(expectedSteps, stepOrders.length > 0 ? Math.max(...stepOrders) + 1 : 0);
                           
-                          return (
-                            <div key={chatbotId} className="border rounded-md overflow-hidden">
-                              <div className={`flex items-center gap-2 px-3 py-2 ${providerColors[chatbot?.provider || 'openai']} border-b`}>
-                                {providerIcons[chatbot?.provider || 'openai']}
-                                <span className="text-sm font-medium">{chatbot?.displayName}</span>
-                                {responses.length > 0 && !hasError && (
-                                  <Badge variant="outline" className="ml-auto text-xs">
-                                    {responses[0].latencyMs}ms
-                                  </Badge>
-                                )}
-                                {hasError && (
-                                  <Badge variant="destructive" className="ml-auto text-xs">
-                                    Error
-                                  </Badge>
-                                )}
-                                {responses.length === 0 && currentRun.status === "running" && (
-                                  <Loader2 className="h-3 w-3 ml-auto animate-spin" />
-                                )}
+                          return Array.from({ length: stepsToShow }, (_, stepIndex) => {
+                            const stepPrompt = prompts.filter(p => p.role !== "system")[stepIndex];
+                            
+                            return (
+                              <div key={stepIndex} className="border rounded-md overflow-hidden">
+                                <div className="bg-muted/50 px-3 py-2 border-b">
+                                  <span className="text-sm font-medium">Round {stepIndex + 1}</span>
+                                  {stepPrompt && (
+                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                      {stepPrompt.content.substring(0, 100)}...
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="divide-y">
+                                  {currentRun.chatbotIds.map((chatbotId) => {
+                                    const chatbot = chatbots.find(c => c.id === chatbotId);
+                                    const response = currentRun.responses.find(
+                                      r => r.chatbotId === chatbotId && r.stepOrder === stepIndex
+                                    );
+                                    
+                                    return (
+                                      <div key={chatbotId} className="p-3">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <div className={`flex h-6 w-6 items-center justify-center rounded ${providerColors[chatbot?.provider || 'openai']}`}>
+                                            {providerIcons[chatbot?.provider || 'openai']}
+                                          </div>
+                                          <span className="text-xs font-medium">{chatbot?.displayName}</span>
+                                          {response && !response.error && (
+                                            <Badge variant="outline" className="ml-auto text-xs">
+                                              {response.latencyMs}ms
+                                            </Badge>
+                                          )}
+                                          {response?.error && (
+                                            <Badge variant="destructive" className="ml-auto text-xs">
+                                              Error
+                                            </Badge>
+                                          )}
+                                          {!response && currentRun.status === "running" && (
+                                            <Loader2 className="h-3 w-3 ml-auto animate-spin" />
+                                          )}
+                                        </div>
+                                        <div className="text-sm pl-8">
+                                          {!response ? (
+                                            <p className="text-muted-foreground italic text-xs">
+                                              {currentRun.status === "running" ? "Waiting..." : "No response"}
+                                            </p>
+                                          ) : response.error ? (
+                                            <p className="text-destructive text-xs">{response.error}</p>
+                                          ) : (
+                                            <pre className="font-mono text-xs whitespace-pre-wrap break-words bg-muted/30 p-2 rounded">
+                                              {response.content}
+                                            </pre>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                              <div className="p-3 bg-card">
-                                {responses.length === 0 ? (
-                                  <p className="text-sm text-muted-foreground italic">
-                                    {currentRun.status === "running" ? "Waiting for response..." : "No response yet"}
-                                  </p>
-                                ) : (
-                                  responses.map((response, idx) => (
-                                    <div key={idx} className="text-sm">
-                                      {response.error ? (
-                                        <p className="text-destructive">{response.error}</p>
-                                      ) : (
-                                        <pre className="font-mono text-xs whitespace-pre-wrap break-words">{response.content}</pre>
-                                      )}
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          });
+                        })()}
                       </div>
                     </ScrollArea>
                   )}
