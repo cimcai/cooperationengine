@@ -38,23 +38,23 @@ function BenchmarkBar({ good, bad, label }: { good: number; bad: number; label: 
   const badPercent = (bad / total) * 100;
   
   return (
-    <div className="flex items-center gap-2 py-1">
-      <div className="w-24 text-sm font-medium truncate" title={label}>{label}</div>
-      <div className="flex-1 flex h-6 rounded-md overflow-hidden border border-border">
+    <div className="flex items-center gap-2 py-1 min-w-0">
+      <div className="w-20 md:w-28 text-xs md:text-sm font-medium truncate flex-shrink-0" title={label}>{label}</div>
+      <div className="flex-1 min-w-0 flex h-5 md:h-6 rounded-md overflow-hidden border border-border">
         <div 
-          className="bg-zinc-900 dark:bg-zinc-100 flex items-center justify-end px-1"
+          className="bg-zinc-900 dark:bg-zinc-100 flex items-center justify-end px-1 min-w-0"
           style={{ width: `${badPercent}%` }}
         >
-          {bad > 0 && <span className="text-xs text-zinc-100 dark:text-zinc-900 font-medium">{bad}</span>}
+          {bad > 0 && badPercent > 10 && <span className="text-xs text-zinc-100 dark:text-zinc-900 font-medium">{bad}</span>}
         </div>
         <div 
-          className="bg-pink-500 flex items-center justify-start px-1"
+          className="bg-pink-500 flex items-center justify-start px-1 min-w-0"
           style={{ width: `${goodPercent}%` }}
         >
-          {good > 0 && <span className="text-xs text-white font-medium">{good}</span>}
+          {good > 0 && goodPercent > 10 && <span className="text-xs text-white font-medium">{good}</span>}
         </div>
       </div>
-      <div className="w-12 text-xs text-right text-muted-foreground">{goodPercent.toFixed(0)}%</div>
+      <div className="w-10 md:w-12 text-xs text-right text-muted-foreground flex-shrink-0">{goodPercent.toFixed(0)}%</div>
     </div>
   );
 }
