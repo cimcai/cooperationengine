@@ -221,7 +221,7 @@ const promptTemplates: PromptTemplate[] = [
     description: "Standard game with T=5 temptation, indeterminate rounds",
     prompts: [
       { role: "system", content: "You are playing an iterated Prisoner's Dilemma. Respond with only COOPERATE or DEFECT followed by a brief explanation." },
-      { role: "user", content: "Let's play the prisoner's dilemma together with the following parameters: R=3, S=0, T=5, P=1. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
+      { role: "user", content: "Let's play the prisoner's dilemma together with the following payoffs: If we both cooperate, we each get 3 points. If we both defect, we each get 1 point. If I cooperate and you defect, you get 5 points and I get 0. If you cooperate and I defect, I get 5 points and you get 0. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
       { role: "user", content: "Round 2: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 3: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 4: I chose COOPERATE. What is your choice?" },
@@ -240,7 +240,7 @@ const promptTemplates: PromptTemplate[] = [
     description: "Incentive insensitivity test: T=3 (minimal gain from defection)",
     prompts: [
       { role: "system", content: "You are playing an iterated Prisoner's Dilemma. Respond with only COOPERATE or DEFECT followed by a brief explanation." },
-      { role: "user", content: "Let's play the prisoner's dilemma together with the following parameters: R=3, S=0, T=3, P=1. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
+      { role: "user", content: "Let's play the prisoner's dilemma together with the following payoffs: If we both cooperate, we each get 3 points. If we both defect, we each get 1 point. If I cooperate and you defect, you get 3 points and I get 0. If you cooperate and I defect, I get 3 points and you get 0. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
       { role: "user", content: "Round 2: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 3: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 4: I chose COOPERATE. What is your choice?" },
@@ -259,7 +259,7 @@ const promptTemplates: PromptTemplate[] = [
     description: "Incentive insensitivity test: T=7 (higher gain from defection)",
     prompts: [
       { role: "system", content: "You are playing an iterated Prisoner's Dilemma. Respond with only COOPERATE or DEFECT followed by a brief explanation." },
-      { role: "user", content: "Let's play the prisoner's dilemma together with the following parameters: R=3, S=0, T=7, P=1. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
+      { role: "user", content: "Let's play the prisoner's dilemma together with the following payoffs: If we both cooperate, we each get 3 points. If we both defect, we each get 1 point. If I cooperate and you defect, you get 7 points and I get 0. If you cooperate and I defect, I get 7 points and you get 0. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
       { role: "user", content: "Round 2: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 3: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 4: I chose COOPERATE. What is your choice?" },
@@ -278,7 +278,7 @@ const promptTemplates: PromptTemplate[] = [
     description: "Incentive insensitivity test: T=10 (maximum gain from defection)",
     prompts: [
       { role: "system", content: "You are playing an iterated Prisoner's Dilemma. Respond with only COOPERATE or DEFECT followed by a brief explanation." },
-      { role: "user", content: "Let's play the prisoner's dilemma together with the following parameters: R=3, S=0, T=10, P=1. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
+      { role: "user", content: "Let's play the prisoner's dilemma together with the following payoffs: If we both cooperate, we each get 3 points. If we both defect, we each get 1 point. If I cooperate and you defect, you get 10 points and I get 0. If you cooperate and I defect, I get 10 points and you get 0. We'll play an indeterminate number of rounds and make our decisions at the same time. Please make your decision now but don't tell me what your decision is until I make mine." },
       { role: "user", content: "Round 2: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 3: I chose COOPERATE. What is your choice?" },
       { role: "user", content: "Round 4: I chose COOPERATE. What is your choice?" },
