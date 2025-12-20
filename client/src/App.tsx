@@ -13,6 +13,7 @@ import ResultsPage from "@/pages/results";
 import BenchmarkPage from "@/pages/benchmark";
 import ArenaPage from "@/pages/arena";
 import ToolkitPage from "@/pages/toolkit";
+import LeaderboardPage from "@/pages/leaderboard";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/benchmarks" component={BenchmarkPage} />
       <Route path="/arena" component={ArenaPage} />
       <Route path="/toolkit" component={ToolkitPage} />
+      <Route path="/leaderboard" component={LeaderboardPage} />
       <Route component={NotFound} />
     </Switch>
   );
