@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { MessageSquarePlus, History, Settings, Zap } from "lucide-react";
+import { MessageSquarePlus, History, Settings, Zap, BarChart3 } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -23,6 +23,11 @@ const menuItems = [
     title: "History",
     url: "/history",
     icon: History,
+  },
+  {
+    title: "Benchmark",
+    url: "/benchmark",
+    icon: BarChart3,
   },
   {
     title: "Settings",

@@ -10,6 +10,7 @@ import ComposePage from "@/pages/compose";
 import HistoryPage from "@/pages/history";
 import SettingsPage from "@/pages/settings";
 import ResultsPage from "@/pages/results";
+import BenchmarkPage from "@/pages/benchmark";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/history" component={HistoryPage} />
       <Route path="/results/:sessionId" component={ResultsPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/benchmark" component={BenchmarkPage} />
       <Route component={NotFound} />
     </Switch>
   );
