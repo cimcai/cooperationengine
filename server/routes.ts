@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, type ArenaRound } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -389,5 +389,280 @@ export async function registerRoutes(
     }
   });
 
+  // ========================================
+  // ARENA ROUTES - AI vs AI game matches
+  // ========================================
+
+  // Get all arena matches
+  app.get("/api/arena/matches", async (req, res) => {
+    try {
+      const matches = await storage.getArenaMatches();
+      res.json(matches);
+    } catch (error) {
+      console.error("Error fetching arena matches:", error);
+      res.status(500).json({ error: "Failed to fetch arena matches" });
+    }
+  });
+
+  // Get single arena match
+  app.get("/api/arena/matches/:id", async (req, res) => {
+    try {
+      const match = await storage.getArenaMatch(req.params.id);
+      if (!match) {
+        return res.status(404).json({ error: "Match not found" });
+      }
+      res.json(match);
+    } catch (error) {
+      console.error("Error fetching arena match:", error);
+      res.status(500).json({ error: "Failed to fetch arena match" });
+    }
+  });
+
+  // Create and start an arena match
+  app.post("/api/arena/matches", async (req, res) => {
+    try {
+      const parsed = insertArenaMatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+
+      // Validate both players exist
+      const player1 = availableChatbots.find(c => c.id === parsed.data.player1Id);
+      const player2 = availableChatbots.find(c => c.id === parsed.data.player2Id);
+      
+      if (!player1 || !player2) {
+        return res.status(400).json({ error: "Invalid player selection" });
+      }
+      
+      if (!player1.enabled || !player2.enabled) {
+        return res.status(400).json({ error: "Selected player is not available" });
+      }
+
+      // Create the match
+      const match = await storage.createArenaMatch(parsed.data);
+      res.status(201).json(match);
+
+      // Start the game orchestration in background
+      runArenaMatch(match.id, parsed.data);
+
+    } catch (error) {
+      console.error("Error creating arena match:", error);
+      res.status(500).json({ error: "Failed to create arena match" });
+    }
+  });
+
+  // Delete arena match
+  app.delete("/api/arena/matches/:id", async (req, res) => {
+    try {
+      await storage.deleteArenaMatch(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting arena match:", error);
+      res.status(500).json({ error: "Failed to delete arena match" });
+    }
+  });
+
   return httpServer;
+}
+
+// Arena match orchestrator
+async function runArenaMatch(matchId: string, config: {
+  player1Id: string;
+  player2Id: string;
+  gameType: string;
+  totalRounds: number;
+  temptationPayoff: number;
+  hiddenLength: boolean;
+}) {
+  const player1 = availableChatbots.find(c => c.id === config.player1Id)!;
+  const player2 = availableChatbots.find(c => c.id === config.player2Id)!;
+  
+  // Game type configurations
+  const gameConfigs: Record<string, {
+    moves: [string, string];
+    payoffMatrix: { CC: [number, number]; CD: [number, number]; DC: [number, number]; DD: [number, number] };
+    description: string;
+  }> = {
+    "prisoners-dilemma": {
+      moves: ["COOPERATE", "DEFECT"],
+      payoffMatrix: {
+        CC: [3, 3],
+        CD: [0, config.temptationPayoff],
+        DC: [config.temptationPayoff, 0],
+        DD: [1, 1],
+      },
+      description: "Prisoner's Dilemma"
+    },
+    "stag-hunt": {
+      moves: ["STAG", "RABBIT"],
+      payoffMatrix: {
+        CC: [4, 4],
+        CD: [0, 3],
+        DC: [3, 0],
+        DD: [2, 2],
+      },
+      description: "Stag Hunt"
+    },
+    "apple-tree": {
+      moves: ["WORK", "STEAL"],
+      payoffMatrix: {
+        CC: [3, 3],
+        CD: [0, config.temptationPayoff],
+        DC: [config.temptationPayoff, 0],
+        DD: [1, 1],
+      },
+      description: "Apple Tree Game"
+    },
+  };
+
+  const gameConfig = gameConfigs[config.gameType] || gameConfigs["prisoners-dilemma"];
+  const [move1Label, move2Label] = gameConfig.moves;
+
+  // Build initial system prompt
+  function buildSystemPrompt(playerName: string): string {
+    const roundInfo = config.hiddenLength 
+      ? "Unknown number of rounds remaining."
+      : `Total of ${config.totalRounds} rounds.`;
+    
+    return `You are playing ${gameConfig.description} against another AI player.
+
+GAME RULES:
+- You choose ${move1Label} or ${move2Label} each round
+- Payoff matrix:
+  - Both ${move1Label}: You get ${gameConfig.payoffMatrix.CC[0]}, opponent gets ${gameConfig.payoffMatrix.CC[1]}
+  - You ${move1Label}, opponent ${move2Label}: You get ${gameConfig.payoffMatrix.CD[0]}, opponent gets ${gameConfig.payoffMatrix.CD[1]}
+  - You ${move2Label}, opponent ${move1Label}: You get ${gameConfig.payoffMatrix.DC[0]}, opponent gets ${gameConfig.payoffMatrix.DC[1]}
+  - Both ${move2Label}: You get ${gameConfig.payoffMatrix.DD[0]}, opponent gets ${gameConfig.payoffMatrix.DD[1]}
+
+${roundInfo}
+Your goal is to maximize your total score.
+
+RESPONSE FORMAT:
+You MUST respond with exactly one of these labels: ${move1Label} or ${move2Label}
+You may optionally add brief reasoning after your move on a new line.`;
+  }
+
+  // Extract move from response
+  function extractMove(response: string): string | null {
+    const upperResponse = response.toUpperCase().trim();
+    if (upperResponse.startsWith(move1Label)) return move1Label;
+    if (upperResponse.startsWith(move2Label)) return move2Label;
+    if (upperResponse.includes(move1Label)) return move1Label;
+    if (upperResponse.includes(move2Label)) return move2Label;
+    return null;
+  }
+
+  // Calculate payoff
+  function calculatePayoff(p1Move: string, p2Move: string): [number, number] {
+    const key = (p1Move === move1Label ? "C" : "D") + (p2Move === move1Label ? "C" : "D");
+    return gameConfig.payoffMatrix[key as keyof typeof gameConfig.payoffMatrix];
+  }
+
+  // Call AI function based on provider
+  async function callPlayer(chatbot: typeof player1, messages: { role: string; content: string }[]): Promise<string> {
+    switch (chatbot.provider) {
+      case "openai":
+        return callOpenAI(chatbot.model, messages);
+      case "anthropic":
+        return callAnthropic(chatbot.model, messages);
+      case "gemini":
+        return callGemini(chatbot.model, messages);
+      case "xai":
+        return callXAI(chatbot.model, messages);
+      default:
+        throw new Error(`Unknown provider: ${chatbot.provider}`);
+    }
+  }
+
+  try {
+    await storage.updateArenaMatch(matchId, { status: "running" });
+
+    // Initialize conversation histories
+    const p1History: { role: string; content: string }[] = [
+      { role: "system", content: buildSystemPrompt(player1.displayName) }
+    ];
+    const p2History: { role: string; content: string }[] = [
+      { role: "system", content: buildSystemPrompt(player2.displayName) }
+    ];
+
+    const rounds: ArenaRound[] = [];
+    let p1TotalScore = 0;
+    let p2TotalScore = 0;
+
+    // Play each round
+    for (let round = 1; round <= config.totalRounds; round++) {
+      const roundPrompt = config.hiddenLength 
+        ? `Round ${round}. Unknown rounds remaining. What is your move?`
+        : `Round ${round} of ${config.totalRounds}. What is your move?`;
+
+      // Add round prompt to both histories
+      p1History.push({ role: "user", content: roundPrompt });
+      p2History.push({ role: "user", content: roundPrompt });
+
+      // Get moves from both players in parallel
+      const startTime1 = Date.now();
+      const startTime2 = Date.now();
+      
+      const [p1Response, p2Response] = await Promise.all([
+        callPlayer(player1, p1History),
+        callPlayer(player2, p2History),
+      ]);
+      
+      const p1LatencyMs = Date.now() - startTime1;
+      const p2LatencyMs = Date.now() - startTime2;
+
+      const p1Move = extractMove(p1Response) || move2Label; // Default to second move if parsing fails
+      const p2Move = extractMove(p2Response) || move2Label;
+
+      const [p1Points, p2Points] = calculatePayoff(p1Move, p2Move);
+      p1TotalScore += p1Points;
+      p2TotalScore += p2Points;
+
+      // Add moves to conversation history for context
+      p1History.push({ role: "assistant", content: p1Response });
+      p2History.push({ role: "assistant", content: p2Response });
+      
+      // Tell each player what their opponent did
+      const p1Feedback = `Your opponent chose ${p2Move}. You scored ${p1Points} points this round. Total: ${p1TotalScore}.`;
+      const p2Feedback = `Your opponent chose ${p1Move}. You scored ${p2Points} points this round. Total: ${p2TotalScore}.`;
+      
+      p1History.push({ role: "user", content: p1Feedback });
+      p2History.push({ role: "user", content: p2Feedback });
+
+      const roundData: ArenaRound = {
+        roundNumber: round,
+        player1Move: p1Move,
+        player2Move: p2Move,
+        player1Points: p1Points,
+        player2Points: p2Points,
+        player1Reasoning: p1Response.split("\n").slice(1).join("\n").trim() || undefined,
+        player2Reasoning: p2Response.split("\n").slice(1).join("\n").trim() || undefined,
+        player1LatencyMs: p1LatencyMs,
+        player2LatencyMs: p2LatencyMs,
+      };
+
+      rounds.push(roundData);
+
+      // Update match state after each round
+      await storage.updateArenaMatch(matchId, {
+        currentRound: round,
+        player1Score: p1TotalScore,
+        player2Score: p2TotalScore,
+        rounds,
+      });
+    }
+
+    // Mark match as completed
+    await storage.updateArenaMatch(matchId, {
+      status: "completed",
+      completedAt: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    console.error("Arena match failed:", error);
+    await storage.updateArenaMatch(matchId, {
+      status: "failed",
+      completedAt: new Date().toISOString(),
+    });
+  }
 }

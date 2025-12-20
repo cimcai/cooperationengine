@@ -256,7 +256,11 @@ export class DatabaseStorage implements IStorage {
     if (updates.player1Score !== undefined) updateData.player1Score = updates.player1Score;
     if (updates.player2Score !== undefined) updateData.player2Score = updates.player2Score;
     if (updates.rounds !== undefined) updateData.rounds = updates.rounds;
-    if (updates.completedAt) updateData.completedAt = new Date(updates.completedAt);
+    if (updates.completedAt !== undefined) updateData.completedAt = updates.completedAt ? new Date(updates.completedAt) : null;
+    
+    if (Object.keys(updateData).length === 0) {
+      return this.getArenaMatch(id);
+    }
     
     const result = await db.update(arenaMatches)
       .set(updateData)
