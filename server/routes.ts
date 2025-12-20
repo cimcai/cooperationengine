@@ -25,6 +25,12 @@ const gemini = new GoogleGenAI({
   },
 });
 
+// xAI client (uses OpenAI SDK with different base URL)
+const xai = process.env.XAI_API_KEY ? new OpenAI({
+  apiKey: process.env.XAI_API_KEY,
+  baseURL: "https://api.x.ai/v1",
+}) : null;
+
 // AI Provider functions
 async function callOpenAI(model: string, messages: { role: string; content: string }[]): Promise<string> {
   const response = await openai.chat.completions.create({
@@ -78,6 +84,21 @@ async function callGemini(model: string, messages: { role: string; content: stri
   });
   
   return response.text || "";
+}
+
+async function callXAI(model: string, messages: { role: string; content: string }[]): Promise<string> {
+  if (!xai) {
+    throw new Error("XAI_API_KEY not configured");
+  }
+  const response = await xai.chat.completions.create({
+    model,
+    messages: messages.map(m => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    })),
+    max_tokens: 2048,
+  });
+  return response.choices[0]?.message?.content || "";
 }
 
 export async function registerRoutes(
@@ -223,6 +244,9 @@ export async function registerRoutes(
                 break;
               case "gemini":
                 content = await callGemini(chatbot.model, conversationHistory);
+                break;
+              case "xai":
+                content = await callXAI(chatbot.model, conversationHistory);
                 break;
             }
 

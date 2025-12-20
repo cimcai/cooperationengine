@@ -30,12 +30,14 @@ const providerIcons: Record<string, JSX.Element> = {
   openai: <SiOpenai className="h-3 w-3" />,
   anthropic: <span className="text-[10px] font-bold">A</span>,
   gemini: <SiGoogle className="h-3 w-3" />,
+  xai: <span className="text-[10px] font-bold">X</span>,
 };
 
 const providerColors: Record<string, string> = {
   openai: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   gemini: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  xai: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
 };
 
 export default function ResultsPage() {

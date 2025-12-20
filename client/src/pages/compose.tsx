@@ -37,12 +37,14 @@ const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-4 w-4" />,
   anthropic: <span className="text-xs font-bold">A</span>,
   gemini: <SiGoogle className="h-4 w-4" />,
+  xai: <span className="text-xs font-bold">X</span>,
 };
 
 const providerColors: Record<string, string> = {
   openai: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   gemini: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  xai: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
 };
 
 interface PromptTemplate {

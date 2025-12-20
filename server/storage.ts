@@ -51,6 +51,14 @@ export const availableChatbots: Chatbot[] = [
     description: "Advanced reasoning capabilities",
     enabled: true,
   },
+  {
+    id: "xai-grok",
+    provider: "xai",
+    displayName: "Grok 2",
+    model: "grok-2-1212",
+    description: "xAI's Grok model - requires XAI_API_KEY",
+    enabled: !!process.env.XAI_API_KEY,
+  },
 ];
 
 export interface IStorage {

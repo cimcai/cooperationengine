@@ -48,6 +48,7 @@ const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-3 w-3" />,
   anthropic: <span className="text-[10px] font-bold">A</span>,
   gemini: <SiGoogle className="h-3 w-3" />,
+  xai: <span className="text-[10px] font-bold">X</span>,
 };
 
 export default function HistoryPage() {

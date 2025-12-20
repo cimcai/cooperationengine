@@ -12,18 +12,21 @@ const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-5 w-5" />,
   anthropic: <span className="text-sm font-bold">A</span>,
   gemini: <SiGoogle className="h-5 w-5" />,
+  xai: <span className="text-sm font-bold">X</span>,
 };
 
 const providerColors: Record<string, string> = {
   openai: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   gemini: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  xai: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
 };
 
 const providerDescriptions: Record<string, string> = {
   openai: "OpenAI's GPT models via Replit AI Integrations",
   anthropic: "Anthropic's Claude models via Replit AI Integrations",
   gemini: "Google's Gemini models via Replit AI Integrations",
+  xai: "xAI's Grok models - requires XAI_API_KEY secret",
 };
 
 export default function SettingsPage() {
