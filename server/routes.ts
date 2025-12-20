@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, type ArenaRound } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToolkitItemSchema, type ArenaRound } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -459,6 +459,51 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting arena match:", error);
       res.status(500).json({ error: "Failed to delete arena match" });
+    }
+  });
+
+  // Toolkit CRUD
+  app.get("/api/toolkit", async (req, res) => {
+    try {
+      const items = await storage.getToolkitItems();
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching toolkit items:", error);
+      res.status(500).json({ error: "Failed to fetch toolkit items" });
+    }
+  });
+
+  app.get("/api/toolkit/:id", async (req, res) => {
+    try {
+      const item = await storage.getToolkitItem(req.params.id);
+      if (!item) {
+        return res.status(404).json({ error: "Toolkit item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error fetching toolkit item:", error);
+      res.status(500).json({ error: "Failed to fetch toolkit item" });
+    }
+  });
+
+  app.post("/api/toolkit", async (req, res) => {
+    try {
+      const validatedData = insertToolkitItemSchema.parse(req.body);
+      const item = await storage.createToolkitItem(validatedData);
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating toolkit item:", error);
+      res.status(400).json({ error: "Failed to create toolkit item" });
+    }
+  });
+
+  app.delete("/api/toolkit/:id", async (req, res) => {
+    try {
+      await storage.deleteToolkitItem(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting toolkit item:", error);
+      res.status(500).json({ error: "Failed to delete toolkit item" });
     }
   });
 

@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords } from "lucide-react";
+import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords, Wrench } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -23,6 +23,11 @@ const menuItems = [
     title: "AI Arena",
     url: "/arena",
     icon: Swords,
+  },
+  {
+    title: "Toolkit",
+    url: "/toolkit",
+    icon: Wrench,
   },
   {
     title: "History",
