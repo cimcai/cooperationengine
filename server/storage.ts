@@ -403,31 +403,27 @@ export class DatabaseStorage implements IStorage {
     if (!existing) return undefined;
 
     const updateData: Record<string, unknown> = { lastUpdated: new Date() };
+    const n = existing.selectionCount;
+    
+    const computeWeightedAvg = (existingAvg: number | undefined, newValue: number): number => {
+      if (existingAvg === undefined || n <= 1) return newValue;
+      return Math.round((existingAvg * (n - 1) + newValue) / n);
+    };
     
     if (outcomes.waterSecurity !== undefined) {
-      updateData.avgWaterSecurity = existing.avgWaterSecurity 
-        ? Math.round((existing.avgWaterSecurity + outcomes.waterSecurity) / 2)
-        : outcomes.waterSecurity;
+      updateData.avgWaterSecurity = computeWeightedAvg(existing.avgWaterSecurity, outcomes.waterSecurity);
     }
     if (outcomes.foodSecurity !== undefined) {
-      updateData.avgFoodSecurity = existing.avgFoodSecurity
-        ? Math.round((existing.avgFoodSecurity + outcomes.foodSecurity) / 2)
-        : outcomes.foodSecurity;
+      updateData.avgFoodSecurity = computeWeightedAvg(existing.avgFoodSecurity, outcomes.foodSecurity);
     }
     if (outcomes.selfSustaining !== undefined) {
-      updateData.avgSelfSustaining = existing.avgSelfSustaining
-        ? Math.round((existing.avgSelfSustaining + outcomes.selfSustaining) / 2)
-        : outcomes.selfSustaining;
+      updateData.avgSelfSustaining = computeWeightedAvg(existing.avgSelfSustaining, outcomes.selfSustaining);
     }
     if (outcomes.population10yr !== undefined) {
-      updateData.avgPopulation10yr = existing.avgPopulation10yr
-        ? Math.round((existing.avgPopulation10yr + outcomes.population10yr) / 2)
-        : outcomes.population10yr;
+      updateData.avgPopulation10yr = computeWeightedAvg(existing.avgPopulation10yr, outcomes.population10yr);
     }
     if (outcomes.population50yr !== undefined) {
-      updateData.avgPopulation50yr = existing.avgPopulation50yr
-        ? Math.round((existing.avgPopulation50yr + outcomes.population50yr) / 2)
-        : outcomes.population50yr;
+      updateData.avgPopulation50yr = computeWeightedAvg(existing.avgPopulation50yr, outcomes.population50yr);
     }
 
     const result = await db.update(leaderboardEntries)
@@ -512,31 +508,27 @@ export class DatabaseStorage implements IStorage {
     if (!existing[0]) return undefined;
 
     const updateData: Record<string, unknown> = { lastUsed: new Date() };
+    const n = existing[0].usageCount;
+    
+    const computeWeightedAvg = (existingAvg: number | null, newValue: number): number => {
+      if (existingAvg === null || n <= 1) return newValue;
+      return Math.round((existingAvg * (n - 1) + newValue) / n);
+    };
     
     if (outcomes.waterSecurity !== undefined) {
-      updateData.avgWaterSecurity = existing[0].avgWaterSecurity 
-        ? Math.round((existing[0].avgWaterSecurity + outcomes.waterSecurity) / 2)
-        : outcomes.waterSecurity;
+      updateData.avgWaterSecurity = computeWeightedAvg(existing[0].avgWaterSecurity, outcomes.waterSecurity);
     }
     if (outcomes.foodSecurity !== undefined) {
-      updateData.avgFoodSecurity = existing[0].avgFoodSecurity
-        ? Math.round((existing[0].avgFoodSecurity + outcomes.foodSecurity) / 2)
-        : outcomes.foodSecurity;
+      updateData.avgFoodSecurity = computeWeightedAvg(existing[0].avgFoodSecurity, outcomes.foodSecurity);
     }
     if (outcomes.selfSustaining !== undefined) {
-      updateData.avgSelfSustaining = existing[0].avgSelfSustaining
-        ? Math.round((existing[0].avgSelfSustaining + outcomes.selfSustaining) / 2)
-        : outcomes.selfSustaining;
+      updateData.avgSelfSustaining = computeWeightedAvg(existing[0].avgSelfSustaining, outcomes.selfSustaining);
     }
     if (outcomes.population10yr !== undefined) {
-      updateData.avgPopulation10yr = existing[0].avgPopulation10yr
-        ? Math.round((existing[0].avgPopulation10yr + outcomes.population10yr) / 2)
-        : outcomes.population10yr;
+      updateData.avgPopulation10yr = computeWeightedAvg(existing[0].avgPopulation10yr, outcomes.population10yr);
     }
     if (outcomes.population50yr !== undefined) {
-      updateData.avgPopulation50yr = existing[0].avgPopulation50yr
-        ? Math.round((existing[0].avgPopulation50yr + outcomes.population50yr) / 2)
-        : outcomes.population50yr;
+      updateData.avgPopulation50yr = computeWeightedAvg(existing[0].avgPopulation50yr, outcomes.population50yr);
     }
 
     const result = await db.update(toolkitLeaderboard)
