@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, sessions, runs } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, sessions, runs, arenaMatches } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -77,6 +77,12 @@ export interface IStorage {
   addResponse(runId: string, response: ChatbotResponse): Promise<void>;
   deleteRun(id: string): Promise<void>;
   getChatbots(): Promise<Chatbot[]>;
+  // Arena methods
+  getArenaMatches(): Promise<ArenaMatch[]>;
+  getArenaMatch(id: string): Promise<ArenaMatch | undefined>;
+  createArenaMatch(data: InsertArenaMatch): Promise<ArenaMatch>;
+  updateArenaMatch(id: string, updates: Partial<ArenaMatch>): Promise<ArenaMatch | undefined>;
+  deleteArenaMatch(id: string): Promise<void>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -97,6 +103,25 @@ function dbRunToRun(row: typeof runs.$inferSelect): Run {
     startedAt: row.startedAt.toISOString(),
     completedAt: row.completedAt?.toISOString(),
     responses: row.responses || [],
+  };
+}
+
+function dbArenaMatchToArenaMatch(row: typeof arenaMatches.$inferSelect): ArenaMatch {
+  return {
+    id: row.id,
+    player1Id: row.player1Id,
+    player2Id: row.player2Id,
+    gameType: row.gameType,
+    totalRounds: row.totalRounds,
+    temptationPayoff: row.temptationPayoff,
+    hiddenLength: row.hiddenLength as boolean,
+    status: row.status,
+    currentRound: row.currentRound,
+    player1Score: row.player1Score,
+    player2Score: row.player2Score,
+    rounds: (row.rounds || []) as ArenaRound[],
+    createdAt: row.createdAt.toISOString(),
+    completedAt: row.completedAt?.toISOString(),
   };
 }
 
@@ -192,6 +217,56 @@ export class DatabaseStorage implements IStorage {
 
   async getChatbots(): Promise<Chatbot[]> {
     return availableChatbots;
+  }
+
+  // Arena methods
+  async getArenaMatches(): Promise<ArenaMatch[]> {
+    const result = await db.select().from(arenaMatches).orderBy(desc(arenaMatches.createdAt));
+    return result.map(dbArenaMatchToArenaMatch);
+  }
+
+  async getArenaMatch(id: string): Promise<ArenaMatch | undefined> {
+    const result = await db.select().from(arenaMatches).where(eq(arenaMatches.id, id));
+    return result[0] ? dbArenaMatchToArenaMatch(result[0]) : undefined;
+  }
+
+  async createArenaMatch(data: InsertArenaMatch): Promise<ArenaMatch> {
+    const id = randomUUID();
+    const result = await db.insert(arenaMatches).values({
+      id,
+      player1Id: data.player1Id,
+      player2Id: data.player2Id,
+      gameType: data.gameType,
+      totalRounds: data.totalRounds,
+      temptationPayoff: data.temptationPayoff,
+      hiddenLength: data.hiddenLength,
+      status: "pending",
+      currentRound: 0,
+      player1Score: 0,
+      player2Score: 0,
+      rounds: [],
+    }).returning();
+    return dbArenaMatchToArenaMatch(result[0]);
+  }
+
+  async updateArenaMatch(id: string, updates: Partial<ArenaMatch>): Promise<ArenaMatch | undefined> {
+    const updateData: Record<string, unknown> = {};
+    if (updates.status !== undefined) updateData.status = updates.status;
+    if (updates.currentRound !== undefined) updateData.currentRound = updates.currentRound;
+    if (updates.player1Score !== undefined) updateData.player1Score = updates.player1Score;
+    if (updates.player2Score !== undefined) updateData.player2Score = updates.player2Score;
+    if (updates.rounds !== undefined) updateData.rounds = updates.rounds;
+    if (updates.completedAt) updateData.completedAt = new Date(updates.completedAt);
+    
+    const result = await db.update(arenaMatches)
+      .set(updateData)
+      .where(eq(arenaMatches.id, id))
+      .returning();
+    return result[0] ? dbArenaMatchToArenaMatch(result[0]) : undefined;
+  }
+
+  async deleteArenaMatch(id: string): Promise<void> {
+    await db.delete(arenaMatches).where(eq(arenaMatches.id, id));
   }
 }
 

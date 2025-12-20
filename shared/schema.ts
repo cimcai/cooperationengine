@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, varchar, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
 
 // Database tables
 export const sessions = pgTable("sessions", {
@@ -30,8 +30,60 @@ export const runs = pgTable("runs", {
   }[]>(),
 });
 
+// Arena matches table - for AI vs AI games
+export const arenaMatches = pgTable("arena_matches", {
+  id: varchar("id").primaryKey(),
+  player1Id: varchar("player1_id").notNull(),
+  player2Id: varchar("player2_id").notNull(),
+  gameType: varchar("game_type", { length: 50 }).notNull(),
+  totalRounds: integer("total_rounds").notNull(),
+  temptationPayoff: integer("temptation_payoff").notNull().default(5),
+  hiddenLength: jsonb("hidden_length").notNull().$type<boolean>().default(false),
+  status: varchar("status", { length: 20 }).notNull().$type<"pending" | "running" | "completed" | "failed">(),
+  currentRound: integer("current_round").notNull().default(0),
+  player1Score: integer("player1_score").notNull().default(0),
+  player2Score: integer("player2_score").notNull().default(0),
+  rounds: jsonb("rounds").notNull().$type<ArenaRound[]>().default([]),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+// Arena round structure (stored in JSONB)
+export interface ArenaRound {
+  roundNumber: number;
+  player1Move: string;
+  player2Move: string;
+  player1Points: number;
+  player2Points: number;
+  player1Reasoning?: string;
+  player2Reasoning?: string;
+  player1LatencyMs: number;
+  player2LatencyMs: number;
+}
+
+// Arena match interface
+export interface ArenaMatch {
+  id: string;
+  player1Id: string;
+  player2Id: string;
+  gameType: string;
+  totalRounds: number;
+  temptationPayoff: number;
+  hiddenLength: boolean;
+  status: "pending" | "running" | "completed" | "failed";
+  currentRound: number;
+  player1Score: number;
+  player2Score: number;
+  rounds: ArenaRound[];
+  createdAt: string;
+  completedAt?: string;
+}
+
+// Game type definitions
+export const gameTypes = ["prisoners-dilemma", "stag-hunt", "apple-tree"] as const;
+export type GameType = typeof gameTypes[number];
+
 // Chatbot providers
-export const chatbotProviders = ["openai", "anthropic", "gemini", "xai"] as const;
 export type ChatbotProvider = typeof chatbotProviders[number];
 
 export interface Chatbot {
@@ -97,6 +149,18 @@ export const insertRunSchema = z.object({
 
 export type InsertSession = z.infer<typeof insertSessionSchema>;
 export type InsertRun = z.infer<typeof insertRunSchema>;
+
+// Arena match insert schema
+export const insertArenaMatchSchema = z.object({
+  player1Id: z.string().min(1, "Select player 1"),
+  player2Id: z.string().min(1, "Select player 2"),
+  gameType: z.enum(["prisoners-dilemma", "stag-hunt", "apple-tree"]),
+  totalRounds: z.number().min(1).max(100),
+  temptationPayoff: z.number().min(1).max(100).default(5),
+  hiddenLength: z.boolean().default(false),
+});
+
+export type InsertArenaMatch = z.infer<typeof insertArenaMatchSchema>;
 
 // User schema (keeping for compatibility)
 export interface User {
