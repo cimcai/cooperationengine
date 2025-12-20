@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Trophy, Clock, Loader2, Trash2, RefreshCw } from "lucide-react";
+import { Play, Trophy, Clock, Loader2, Trash2, RefreshCw, Download } from "lucide-react";
 import type { Chatbot, ArenaMatch } from "@shared/schema";
 
 export default function ArenaPage() {
@@ -86,6 +86,45 @@ export default function ArenaPage() {
     return chatbots.find(c => c.id === id)?.displayName || id;
   };
 
+  const exportMatchesAsJSON = () => {
+    const exportData = matches.map(match => ({
+      ...match,
+      player1Name: getChatbotName(match.player1Id),
+      player2Name: getChatbotName(match.player2Id),
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `arena-matches-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportMatchesAsCSV = () => {
+    const headers = ["Match ID", "Player 1", "Player 2", "Game Type", "Rounds", "P1 Score", "P2 Score", "Status", "Created", "Rounds Data"];
+    const rows = matches.map(match => [
+      match.id,
+      getChatbotName(match.player1Id),
+      getChatbotName(match.player2Id),
+      match.gameType,
+      match.totalRounds,
+      match.player1Score,
+      match.player2Score,
+      match.status,
+      match.createdAt,
+      match.rounds.map(r => `R${r.roundNumber}:${r.player1Move}/${r.player2Move}`).join(";")
+    ]);
+    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `arena-matches-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const getGameTypeName = (type: string) => {
     const names: Record<string, string> = {
       "prisoners-dilemma": "Prisoner's Dilemma",
@@ -116,6 +155,28 @@ export default function ArenaPage() {
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-arena-title">AI Arena</h1>
           <p className="text-sm text-muted-foreground">Watch AI models compete in game theory battles</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportMatchesAsJSON}
+            disabled={matches.length === 0}
+            data-testid="button-export-json"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export JSON
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportMatchesAsCSV}
+            disabled={matches.length === 0}
+            data-testid="button-export-csv"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
         </div>
       </div>
 
