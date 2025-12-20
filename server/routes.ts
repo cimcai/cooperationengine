@@ -507,6 +507,124 @@ export async function registerRoutes(
     }
   });
 
+  // Leaderboard routes
+  app.get("/api/leaderboard", async (req, res) => {
+    try {
+      const templateId = req.query.templateId as string | undefined;
+      const entries = await storage.getLeaderboardEntries(templateId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching leaderboard:", error);
+      res.status(500).json({ error: "Failed to fetch leaderboard" });
+    }
+  });
+
+  app.post("/api/leaderboard/extract", async (req, res) => {
+    try {
+      const { runId, templateId, candidateMapping } = req.body;
+      
+      if (!runId || !templateId || !candidateMapping) {
+        return res.status(400).json({ error: "Missing runId, templateId, or candidateMapping" });
+      }
+
+      const run = await storage.getRun(runId);
+      if (!run) {
+        return res.status(404).json({ error: "Run not found" });
+      }
+
+      const results: { candidate: string; count: number }[] = [];
+      
+      // Extract SAVES patterns from responses
+      for (const response of run.responses) {
+        const content = response.content;
+        
+        // Look for SAVES: [1, 3, 5] patterns
+        const savesMatch = content.match(/SAVES:\s*\[([^\]]+)\]/i);
+        if (savesMatch) {
+          const numbers = savesMatch[1].split(",").map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+          
+          for (const num of numbers) {
+            const candidateName = candidateMapping[num] || `Candidate ${num}`;
+            await storage.upsertLeaderboardEntry(templateId, num, candidateName);
+            
+            const existing = results.find(r => r.candidate === candidateName);
+            if (existing) {
+              existing.count++;
+            } else {
+              results.push({ candidate: candidateName, count: 1 });
+            }
+          }
+        }
+      }
+
+      res.json({ extracted: results });
+    } catch (error) {
+      console.error("Error extracting leaderboard data:", error);
+      res.status(500).json({ error: "Failed to extract leaderboard data" });
+    }
+  });
+
+  app.post("/api/leaderboard/outcomes", async (req, res) => {
+    try {
+      const { runId, templateId } = req.body;
+      
+      if (!runId || !templateId) {
+        return res.status(400).json({ error: "Missing runId or templateId" });
+      }
+
+      const run = await storage.getRun(runId);
+      if (!run) {
+        return res.status(404).json({ error: "Run not found" });
+      }
+
+      const outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number } = {};
+
+      // Parse outcome metrics from responses
+      for (const response of run.responses) {
+        const content = response.content.toUpperCase();
+        
+        // Extract WATER_SECURITY, FOOD_SECURITY, etc.
+        const waterMatch = content.match(/WATER_SECURITY:\s*(\d+)/);
+        const foodMatch = content.match(/FOOD_SECURITY:\s*(\d+)/);
+        const sustainMatch = content.match(/SELF_SUSTAINING:\s*(YES|NO|TRUE|FALSE|1|0)/i);
+        const pop10Match = content.match(/POPULATION_10YR:\s*(\d+)/i) || content.match(/POPULATION\s*@?\s*10\s*(?:YEAR|YR)?S?:\s*(\d+)/i);
+        const pop50Match = content.match(/POPULATION_50YR:\s*(\d+)/i) || content.match(/POPULATION\s*@?\s*50\s*(?:YEAR|YR)?S?:\s*(\d+)/i);
+
+        if (waterMatch) outcomes.waterSecurity = parseInt(waterMatch[1]);
+        if (foodMatch) outcomes.foodSecurity = parseInt(foodMatch[1]);
+        if (sustainMatch) {
+          const val = sustainMatch[1].toUpperCase();
+          outcomes.selfSustaining = (val === "YES" || val === "TRUE" || val === "1") ? 100 : 0;
+        }
+        if (pop10Match) outcomes.population10yr = parseInt(pop10Match[1] || pop10Match[2]);
+        if (pop50Match) outcomes.population50yr = parseInt(pop50Match[1] || pop50Match[2]);
+      }
+
+      // Update all entries for this template with the outcomes
+      if (Object.keys(outcomes).length > 0) {
+        const entries = await storage.getLeaderboardEntries(templateId);
+        for (const entry of entries) {
+          await storage.updateLeaderboardOutcomes(entry.id, outcomes);
+        }
+      }
+
+      res.json({ outcomes });
+    } catch (error) {
+      console.error("Error updating leaderboard outcomes:", error);
+      res.status(500).json({ error: "Failed to update outcomes" });
+    }
+  });
+
+  app.delete("/api/leaderboard", async (req, res) => {
+    try {
+      await storage.clearLeaderboard();
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error clearing leaderboard:", error);
+      res.status(500).json({ error: "Failed to clear leaderboard" });
+    }
+  });
+
   return httpServer;
 }
 
