@@ -1,7 +1,37 @@
 import { z } from "zod";
+import { pgTable, varchar, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+
+// Database tables
+export const sessions = pgTable("sessions", {
+  id: varchar("id").primaryKey(),
+  title: text("title").notNull(),
+  prompts: jsonb("prompts").notNull().$type<{
+    id: string;
+    order: number;
+    role: "user" | "assistant" | "system";
+    content: string;
+  }[]>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const runs = pgTable("runs", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull().references(() => sessions.id),
+  chatbotIds: jsonb("chatbot_ids").notNull().$type<string[]>(),
+  status: varchar("status", { length: 20 }).notNull().$type<"pending" | "running" | "completed" | "failed">(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  responses: jsonb("responses").notNull().$type<{
+    chatbotId: string;
+    stepOrder: number;
+    content: string;
+    latencyMs: number;
+    error?: string;
+  }[]>(),
+});
 
 // Chatbot providers
-export const chatbotProviders = ["openai", "anthropic", "gemini"] as const;
+export const chatbotProviders = ["openai", "anthropic", "gemini", "xai"] as const;
 export type ChatbotProvider = typeof chatbotProviders[number];
 
 export interface Chatbot {
