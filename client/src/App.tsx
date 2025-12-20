@@ -21,6 +21,7 @@ function Router() {
       <Route path="/results/:sessionId" component={ResultsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/benchmark" component={BenchmarkPage} />
+      <Route path="/benchmarks" component={BenchmarkPage} />
       <Route component={NotFound} />
     </Switch>
   );
