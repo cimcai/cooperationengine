@@ -300,6 +300,17 @@ export async function registerRoutes(
     }
   });
 
+  // Get all runs (for benchmark)
+  app.get("/api/runs", async (req, res) => {
+    try {
+      const allRuns = await storage.getRuns();
+      res.json(allRuns);
+    } catch (error) {
+      console.error("Error fetching runs:", error);
+      res.status(500).json({ error: "Failed to fetch runs" });
+    }
+  });
+
   // Get run status and results
   app.get("/api/runs/:id", async (req, res) => {
     try {
