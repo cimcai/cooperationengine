@@ -64,12 +64,10 @@ export default function BenchmarkPage() {
   const maxCount = Math.max(...scores.map((s) => Math.max(s.cooperateCount, s.defectCount)), 1);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-benchmark-title">AI Cooperation Benchmark</h1>
-          <p className="text-muted-foreground">Comparing cooperative vs parasitic behaviors across AI models</p>
-        </div>
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6">
+      <div className="space-y-2">
+        <h1 className="text-xl md:text-2xl font-bold" data-testid="text-benchmark-title">AI Cooperation Benchmark</h1>
+        <p className="text-sm text-muted-foreground">Comparing cooperative vs parasitic behaviors across AI models</p>
         <Badge variant="secondary" data-testid="badge-total-responses">
           {scores.reduce((sum, s) => sum + s.totalResponses, 0)} total decisions analyzed
         </Badge>
@@ -85,55 +83,53 @@ export default function BenchmarkPage() {
       ) : (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center justify-between gap-2 flex-wrap">
-              <span>Cooperation Leaderboard</span>
-              <div className="flex items-center gap-4 text-sm font-normal">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-zinc-800 dark:bg-zinc-300 rounded-sm" />
-                  <span className="text-muted-foreground">Defect (Parasitic)</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 bg-pink-500 rounded-sm" />
-                  <span className="text-muted-foreground">Cooperate</span>
-                </div>
+            <CardTitle className="text-base">Cooperation Leaderboard</CardTitle>
+            <div className="flex items-center gap-4 text-sm mt-2">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-zinc-800 dark:bg-zinc-300 rounded-sm" />
+                <span className="text-muted-foreground text-xs">Defect</span>
               </div>
-            </CardTitle>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-pink-500 rounded-sm" />
+                <span className="text-muted-foreground text-xs">Cooperate</span>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             {scores.map((score) => (
-              <div key={score.chatbotId} className="space-y-1" data-testid={`row-ai-${score.chatbotId}`}>
+              <div key={score.chatbotId} className="space-y-0.5" data-testid={`row-ai-${score.chatbotId}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-sm">{score.displayName}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {(score.cooperationRate * 100).toFixed(0)}% cooperative
+                  <span className="font-medium text-sm truncate">{score.displayName}</span>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {(score.cooperationRate * 100).toFixed(0)}%
                   </span>
                 </div>
-                <div className="flex items-center h-8">
+                <div className="flex items-center h-5">
                   <div className="flex-1 flex justify-end">
                     <div
-                      className="h-6 bg-zinc-800 dark:bg-zinc-300 rounded-l-sm transition-all"
+                      className="h-4 bg-zinc-800 dark:bg-zinc-300 rounded-l-sm transition-all"
                       style={{
                         width: `${(score.defectCount / maxCount) * 100}%`,
-                        minWidth: score.defectCount > 0 ? "4px" : "0",
+                        minWidth: score.defectCount > 0 ? "2px" : "0",
                       }}
                       title={`${score.defectCount} defections`}
                     />
                   </div>
-                  <div className="w-px h-8 bg-border mx-1" />
+                  <div className="w-px h-5 bg-border" />
                   <div className="flex-1">
                     <div
-                      className="h-6 bg-pink-500 rounded-r-sm transition-all"
+                      className="h-4 bg-pink-500 rounded-r-sm transition-all"
                       style={{
                         width: `${(score.cooperateCount / maxCount) * 100}%`,
-                        minWidth: score.cooperateCount > 0 ? "4px" : "0",
+                        minWidth: score.cooperateCount > 0 ? "2px" : "0",
                       }}
                       title={`${score.cooperateCount} cooperations`}
                     />
                   </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{score.defectCount} defect</span>
-                  <span>{score.cooperateCount} cooperate</span>
+                  <span>{score.defectCount}</span>
+                  <span>{score.cooperateCount}</span>
                 </div>
               </div>
             ))}
