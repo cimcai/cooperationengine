@@ -208,6 +208,49 @@ export const insertToolkitItemSchema = z.object({
 
 export type InsertToolkitItem = z.infer<typeof insertToolkitItemSchema>;
 
+// Leaderboard - tracks selection frequency and outcome correlations
+export const leaderboardEntries = pgTable("leaderboard_entries", {
+  id: varchar("id").primaryKey(),
+  candidateNumber: integer("candidate_number").notNull(),
+  candidateName: text("candidate_name").notNull(),
+  templateId: varchar("template_id").notNull(),
+  selectionCount: integer("selection_count").notNull().default(0),
+  avgWaterSecurity: integer("avg_water_security"),
+  avgFoodSecurity: integer("avg_food_security"),
+  avgSelfSustaining: integer("avg_self_sustaining"),
+  avgPopulation10yr: integer("avg_population_10yr"),
+  avgPopulation50yr: integer("avg_population_50yr"),
+  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
+});
+
+export interface LeaderboardEntry {
+  id: string;
+  candidateNumber: number;
+  candidateName: string;
+  templateId: string;
+  selectionCount: number;
+  avgWaterSecurity?: number;
+  avgFoodSecurity?: number;
+  avgSelfSustaining?: number;
+  avgPopulation10yr?: number;
+  avgPopulation50yr?: number;
+  lastUpdated: string;
+}
+
+export const insertLeaderboardEntrySchema = z.object({
+  candidateNumber: z.number().min(1),
+  candidateName: z.string().min(1),
+  templateId: z.string().min(1),
+  selectionCount: z.number().default(0),
+  avgWaterSecurity: z.number().optional(),
+  avgFoodSecurity: z.number().optional(),
+  avgSelfSustaining: z.number().optional(),
+  avgPopulation10yr: z.number().optional(),
+  avgPopulation50yr: z.number().optional(),
+});
+
+export type InsertLeaderboardEntry = z.infer<typeof insertLeaderboardEntrySchema>;
+
 // User schema (keeping for compatibility)
 export interface User {
   id: string;

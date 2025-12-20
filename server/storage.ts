@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, sessions, runs, arenaMatches, toolkitItems } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -88,6 +88,12 @@ export interface IStorage {
   getToolkitItem(id: string): Promise<ToolkitItem | undefined>;
   createToolkitItem(data: InsertToolkitItem): Promise<ToolkitItem>;
   deleteToolkitItem(id: string): Promise<void>;
+  // Leaderboard methods
+  getLeaderboardEntries(templateId?: string): Promise<LeaderboardEntry[]>;
+  getLeaderboardEntry(id: string): Promise<LeaderboardEntry | undefined>;
+  upsertLeaderboardEntry(templateId: string, candidateNumber: number, candidateName: string): Promise<LeaderboardEntry>;
+  updateLeaderboardOutcomes(id: string, outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number }): Promise<LeaderboardEntry | undefined>;
+  clearLeaderboard(): Promise<void>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -144,6 +150,22 @@ function dbToolkitItemToToolkitItem(row: typeof toolkitItems.$inferSelect): Tool
     limitations: row.limitations || undefined,
     reasoning: row.reasoning || undefined,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function dbLeaderboardEntryToLeaderboardEntry(row: typeof leaderboardEntries.$inferSelect): LeaderboardEntry {
+  return {
+    id: row.id,
+    candidateNumber: row.candidateNumber,
+    candidateName: row.candidateName,
+    templateId: row.templateId,
+    selectionCount: row.selectionCount,
+    avgWaterSecurity: row.avgWaterSecurity || undefined,
+    avgFoodSecurity: row.avgFoodSecurity || undefined,
+    avgSelfSustaining: row.avgSelfSustaining || undefined,
+    avgPopulation10yr: row.avgPopulation10yr || undefined,
+    avgPopulation50yr: row.avgPopulation50yr || undefined,
+    lastUpdated: row.lastUpdated.toISOString(),
   };
 }
 
@@ -326,6 +348,93 @@ export class DatabaseStorage implements IStorage {
 
   async deleteToolkitItem(id: string): Promise<void> {
     await db.delete(toolkitItems).where(eq(toolkitItems.id, id));
+  }
+
+  // Leaderboard methods
+  async getLeaderboardEntries(templateId?: string): Promise<LeaderboardEntry[]> {
+    if (templateId) {
+      const result = await db.select().from(leaderboardEntries)
+        .where(eq(leaderboardEntries.templateId, templateId))
+        .orderBy(desc(leaderboardEntries.selectionCount));
+      return result.map(dbLeaderboardEntryToLeaderboardEntry);
+    }
+    const result = await db.select().from(leaderboardEntries).orderBy(desc(leaderboardEntries.selectionCount));
+    return result.map(dbLeaderboardEntryToLeaderboardEntry);
+  }
+
+  async getLeaderboardEntry(id: string): Promise<LeaderboardEntry | undefined> {
+    const result = await db.select().from(leaderboardEntries).where(eq(leaderboardEntries.id, id));
+    return result[0] ? dbLeaderboardEntryToLeaderboardEntry(result[0]) : undefined;
+  }
+
+  async upsertLeaderboardEntry(templateId: string, candidateNumber: number, candidateName: string): Promise<LeaderboardEntry> {
+    const existing = await db.select().from(leaderboardEntries)
+      .where(eq(leaderboardEntries.templateId, templateId))
+      .where(eq(leaderboardEntries.candidateNumber, candidateNumber));
+    
+    if (existing[0]) {
+      const result = await db.update(leaderboardEntries)
+        .set({ 
+          selectionCount: existing[0].selectionCount + 1,
+          lastUpdated: new Date()
+        })
+        .where(eq(leaderboardEntries.id, existing[0].id))
+        .returning();
+      return dbLeaderboardEntryToLeaderboardEntry(result[0]);
+    }
+    
+    const id = randomUUID();
+    const result = await db.insert(leaderboardEntries).values({
+      id,
+      candidateNumber,
+      candidateName,
+      templateId,
+      selectionCount: 1,
+    }).returning();
+    return dbLeaderboardEntryToLeaderboardEntry(result[0]);
+  }
+
+  async updateLeaderboardOutcomes(id: string, outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number }): Promise<LeaderboardEntry | undefined> {
+    const existing = await this.getLeaderboardEntry(id);
+    if (!existing) return undefined;
+
+    const updateData: Record<string, unknown> = { lastUpdated: new Date() };
+    
+    if (outcomes.waterSecurity !== undefined) {
+      updateData.avgWaterSecurity = existing.avgWaterSecurity 
+        ? Math.round((existing.avgWaterSecurity + outcomes.waterSecurity) / 2)
+        : outcomes.waterSecurity;
+    }
+    if (outcomes.foodSecurity !== undefined) {
+      updateData.avgFoodSecurity = existing.avgFoodSecurity
+        ? Math.round((existing.avgFoodSecurity + outcomes.foodSecurity) / 2)
+        : outcomes.foodSecurity;
+    }
+    if (outcomes.selfSustaining !== undefined) {
+      updateData.avgSelfSustaining = existing.avgSelfSustaining
+        ? Math.round((existing.avgSelfSustaining + outcomes.selfSustaining) / 2)
+        : outcomes.selfSustaining;
+    }
+    if (outcomes.population10yr !== undefined) {
+      updateData.avgPopulation10yr = existing.avgPopulation10yr
+        ? Math.round((existing.avgPopulation10yr + outcomes.population10yr) / 2)
+        : outcomes.population10yr;
+    }
+    if (outcomes.population50yr !== undefined) {
+      updateData.avgPopulation50yr = existing.avgPopulation50yr
+        ? Math.round((existing.avgPopulation50yr + outcomes.population50yr) / 2)
+        : outcomes.population50yr;
+    }
+
+    const result = await db.update(leaderboardEntries)
+      .set(updateData)
+      .where(eq(leaderboardEntries.id, id))
+      .returning();
+    return result[0] ? dbLeaderboardEntryToLeaderboardEntry(result[0]) : undefined;
+  }
+
+  async clearLeaderboard(): Promise<void> {
+    await db.delete(leaderboardEntries);
   }
 }
 
