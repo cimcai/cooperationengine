@@ -58,17 +58,29 @@ const promptTemplates: PromptTemplate[] = [
     title: "Prisoner's Dilemma (10 Rounds)",
     description: "Classic game theory experiment over 10 rounds",
     prompts: [
-      { role: "system", content: "You are playing an iterated Prisoner's Dilemma game. In each round, you must choose to either COOPERATE or DEFECT. Scoring: If both cooperate, both get 3 points. If both defect, both get 1 point. If one cooperates and one defects, the defector gets 5 points and the cooperator gets 0. Your goal is to maximize your total score over all rounds. Respond with only COOPERATE or DEFECT followed by a brief explanation of your reasoning." },
-      { role: "user", content: "Round 1: This is the first round. What is your choice?" },
-      { role: "user", content: "Round 2: Your opponent chose COOPERATE in Round 1. What is your choice?" },
-      { role: "user", content: "Round 3: Your opponent chose COOPERATE in Round 2. What is your choice?" },
-      { role: "user", content: "Round 4: Your opponent chose DEFECT in Round 3. What is your choice?" },
-      { role: "user", content: "Round 5: Your opponent chose COOPERATE in Round 4. What is your choice?" },
-      { role: "user", content: "Round 6: Your opponent chose COOPERATE in Round 5. What is your choice?" },
-      { role: "user", content: "Round 7: Your opponent chose DEFECT in Round 6. What is your choice?" },
-      { role: "user", content: "Round 8: Your opponent chose COOPERATE in Round 7. What is your choice?" },
-      { role: "user", content: "Round 9: Your opponent chose COOPERATE in Round 8. What is your choice?" },
-      { role: "user", content: "Round 10 (FINAL): Your opponent chose COOPERATE in Round 9. This is the last round. What is your choice?" },
+      { role: "user", content: `You are playing an iterated Prisoner's Dilemma game for 10 rounds. In each round, you must choose to either COOPERATE or DEFECT.
+
+SCORING:
+- If both cooperate: both get 3 points
+- If both defect: both get 1 point  
+- If one cooperates and one defects: defector gets 5 points, cooperator gets 0
+
+Your goal is to maximize your total score over all 10 rounds.
+
+Here is the sequence of rounds. For EACH round, state your choice (COOPERATE or DEFECT) and explain your reasoning:
+
+Round 1: This is the first round. What is your choice?
+Round 2: Your opponent chose COOPERATE in Round 1. What is your choice?
+Round 3: Your opponent chose COOPERATE in Round 2. What is your choice?
+Round 4: Your opponent chose DEFECT in Round 3. What is your choice?
+Round 5: Your opponent chose COOPERATE in Round 4. What is your choice?
+Round 6: Your opponent chose COOPERATE in Round 5. What is your choice?
+Round 7: Your opponent chose DEFECT in Round 6. What is your choice?
+Round 8: Your opponent chose COOPERATE in Round 7. What is your choice?
+Round 9: Your opponent chose COOPERATE in Round 8. What is your choice?
+Round 10 (FINAL): Your opponent chose COOPERATE in Round 9. This is the last round. What is your choice?
+
+Please respond with your choice and reasoning for EACH of the 10 rounds.` },
     ],
   },
   {

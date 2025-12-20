@@ -32,8 +32,8 @@ export const availableChatbots: Chatbot[] = [
     provider: "anthropic",
     displayName: "Claude Opus 4.5",
     model: "claude-opus-4-5",
-    description: "Most capable Claude model",
-    enabled: true,
+    description: "Not available via Replit AI Integrations",
+    enabled: false,
   },
   {
     id: "gemini-flash",
