@@ -300,11 +300,19 @@ export async function registerRoutes(
     }
   });
 
-  // Get all runs (for benchmark)
+  // Get all runs with session data (for benchmark)
   app.get("/api/runs", async (req, res) => {
     try {
       const allRuns = await storage.getRuns();
-      res.json(allRuns);
+      const allSessions = await storage.getSessions();
+      const sessionMap = new Map(allSessions.map(s => [s.id, s]));
+      
+      const runsWithSessions = allRuns.map(run => ({
+        ...run,
+        session: sessionMap.get(run.sessionId) || null,
+      }));
+      
+      res.json(runsWithSessions);
     } catch (error) {
       console.error("Error fetching runs:", error);
       res.status(500).json({ error: "Failed to fetch runs" });
