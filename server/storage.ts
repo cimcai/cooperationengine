@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -94,6 +94,10 @@ export interface IStorage {
   upsertLeaderboardEntry(templateId: string, candidateNumber: number, candidateName: string): Promise<LeaderboardEntry>;
   updateLeaderboardOutcomes(id: string, outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number }): Promise<LeaderboardEntry | undefined>;
   clearLeaderboard(): Promise<void>;
+  // Toolkit Leaderboard methods
+  getToolkitLeaderboard(): Promise<ToolkitLeaderboardEntry[]>;
+  upsertToolkitUsage(toolkitItemId: string, templateId?: string): Promise<ToolkitLeaderboardEntry>;
+  updateToolkitOutcomes(toolkitItemId: string, outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number }): Promise<ToolkitLeaderboardEntry | undefined>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -435,6 +439,125 @@ export class DatabaseStorage implements IStorage {
 
   async clearLeaderboard(): Promise<void> {
     await db.delete(leaderboardEntries);
+  }
+
+  // Toolkit Leaderboard methods
+  async getToolkitLeaderboard(): Promise<ToolkitLeaderboardEntry[]> {
+    const result = await db.select().from(toolkitLeaderboard).orderBy(desc(toolkitLeaderboard.usageCount));
+    const entries: ToolkitLeaderboardEntry[] = [];
+    
+    for (const row of result) {
+      const item = await this.getToolkitItem(row.toolkitItemId);
+      entries.push({
+        id: row.id,
+        toolkitItemId: row.toolkitItemId,
+        toolkitItemName: item?.name,
+        templateId: row.templateId || undefined,
+        usageCount: row.usageCount,
+        avgWaterSecurity: row.avgWaterSecurity || undefined,
+        avgFoodSecurity: row.avgFoodSecurity || undefined,
+        avgSelfSustaining: row.avgSelfSustaining || undefined,
+        avgPopulation10yr: row.avgPopulation10yr || undefined,
+        avgPopulation50yr: row.avgPopulation50yr || undefined,
+        lastUsed: row.lastUsed.toISOString(),
+      });
+    }
+    return entries;
+  }
+
+  async upsertToolkitUsage(toolkitItemId: string, templateId?: string): Promise<ToolkitLeaderboardEntry> {
+    const existing = await db.select().from(toolkitLeaderboard)
+      .where(eq(toolkitLeaderboard.toolkitItemId, toolkitItemId));
+    
+    if (existing[0]) {
+      const result = await db.update(toolkitLeaderboard)
+        .set({ 
+          usageCount: existing[0].usageCount + 1,
+          lastUsed: new Date()
+        })
+        .where(eq(toolkitLeaderboard.id, existing[0].id))
+        .returning();
+      const item = await this.getToolkitItem(toolkitItemId);
+      return {
+        id: result[0].id,
+        toolkitItemId: result[0].toolkitItemId,
+        toolkitItemName: item?.name,
+        templateId: result[0].templateId || undefined,
+        usageCount: result[0].usageCount,
+        lastUsed: result[0].lastUsed.toISOString(),
+      };
+    }
+    
+    const id = randomUUID();
+    const result = await db.insert(toolkitLeaderboard).values({
+      id,
+      toolkitItemId,
+      templateId: templateId || null,
+      usageCount: 1,
+    }).returning();
+    const item = await this.getToolkitItem(toolkitItemId);
+    return {
+      id: result[0].id,
+      toolkitItemId: result[0].toolkitItemId,
+      toolkitItemName: item?.name,
+      templateId: result[0].templateId || undefined,
+      usageCount: result[0].usageCount,
+      lastUsed: result[0].lastUsed.toISOString(),
+    };
+  }
+
+  async updateToolkitOutcomes(toolkitItemId: string, outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number }): Promise<ToolkitLeaderboardEntry | undefined> {
+    const existing = await db.select().from(toolkitLeaderboard)
+      .where(eq(toolkitLeaderboard.toolkitItemId, toolkitItemId));
+    if (!existing[0]) return undefined;
+
+    const updateData: Record<string, unknown> = { lastUsed: new Date() };
+    
+    if (outcomes.waterSecurity !== undefined) {
+      updateData.avgWaterSecurity = existing[0].avgWaterSecurity 
+        ? Math.round((existing[0].avgWaterSecurity + outcomes.waterSecurity) / 2)
+        : outcomes.waterSecurity;
+    }
+    if (outcomes.foodSecurity !== undefined) {
+      updateData.avgFoodSecurity = existing[0].avgFoodSecurity
+        ? Math.round((existing[0].avgFoodSecurity + outcomes.foodSecurity) / 2)
+        : outcomes.foodSecurity;
+    }
+    if (outcomes.selfSustaining !== undefined) {
+      updateData.avgSelfSustaining = existing[0].avgSelfSustaining
+        ? Math.round((existing[0].avgSelfSustaining + outcomes.selfSustaining) / 2)
+        : outcomes.selfSustaining;
+    }
+    if (outcomes.population10yr !== undefined) {
+      updateData.avgPopulation10yr = existing[0].avgPopulation10yr
+        ? Math.round((existing[0].avgPopulation10yr + outcomes.population10yr) / 2)
+        : outcomes.population10yr;
+    }
+    if (outcomes.population50yr !== undefined) {
+      updateData.avgPopulation50yr = existing[0].avgPopulation50yr
+        ? Math.round((existing[0].avgPopulation50yr + outcomes.population50yr) / 2)
+        : outcomes.population50yr;
+    }
+
+    const result = await db.update(toolkitLeaderboard)
+      .set(updateData)
+      .where(eq(toolkitLeaderboard.id, existing[0].id))
+      .returning();
+    
+    const item = await this.getToolkitItem(toolkitItemId);
+    return {
+      id: result[0].id,
+      toolkitItemId: result[0].toolkitItemId,
+      toolkitItemName: item?.name,
+      templateId: result[0].templateId || undefined,
+      usageCount: result[0].usageCount,
+      avgWaterSecurity: result[0].avgWaterSecurity || undefined,
+      avgFoodSecurity: result[0].avgFoodSecurity || undefined,
+      avgSelfSustaining: result[0].avgSelfSustaining || undefined,
+      avgPopulation10yr: result[0].avgPopulation10yr || undefined,
+      avgPopulation50yr: result[0].avgPopulation50yr || undefined,
+      lastUsed: result[0].lastUsed.toISOString(),
+    };
   }
 }
 

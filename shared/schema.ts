@@ -251,6 +251,34 @@ export const insertLeaderboardEntrySchema = z.object({
 
 export type InsertLeaderboardEntry = z.infer<typeof insertLeaderboardEntrySchema>;
 
+// Toolkit Leaderboard - tracks toolkit item usage and effectiveness
+export const toolkitLeaderboard = pgTable("toolkit_leaderboard", {
+  id: varchar("id").primaryKey(),
+  toolkitItemId: varchar("toolkit_item_id").notNull().references(() => toolkitItems.id),
+  templateId: varchar("template_id"),
+  usageCount: integer("usage_count").notNull().default(0),
+  avgWaterSecurity: integer("avg_water_security"),
+  avgFoodSecurity: integer("avg_food_security"),
+  avgSelfSustaining: integer("avg_self_sustaining"),
+  avgPopulation10yr: integer("avg_population_10yr"),
+  avgPopulation50yr: integer("avg_population_50yr"),
+  lastUsed: timestamp("last_used").defaultNow().notNull(),
+});
+
+export interface ToolkitLeaderboardEntry {
+  id: string;
+  toolkitItemId: string;
+  toolkitItemName?: string;
+  templateId?: string;
+  usageCount: number;
+  avgWaterSecurity?: number;
+  avgFoodSecurity?: number;
+  avgSelfSustaining?: number;
+  avgPopulation10yr?: number;
+  avgPopulation50yr?: number;
+  lastUsed: string;
+}
+
 // User schema (keeping for compatibility)
 export interface User {
   id: string;

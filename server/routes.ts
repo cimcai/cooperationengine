@@ -625,6 +625,52 @@ export async function registerRoutes(
     }
   });
 
+  // Toolkit Leaderboard routes
+  app.get("/api/toolkit-leaderboard", async (req, res) => {
+    try {
+      const entries = await storage.getToolkitLeaderboard();
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching toolkit leaderboard:", error);
+      res.status(500).json({ error: "Failed to fetch toolkit leaderboard" });
+    }
+  });
+
+  app.post("/api/toolkit-leaderboard/usage", async (req, res) => {
+    try {
+      const { toolkitItemId, templateId } = req.body;
+      
+      if (!toolkitItemId) {
+        return res.status(400).json({ error: "Missing toolkitItemId" });
+      }
+
+      const entry = await storage.upsertToolkitUsage(toolkitItemId, templateId);
+      res.json(entry);
+    } catch (error) {
+      console.error("Error recording toolkit usage:", error);
+      res.status(500).json({ error: "Failed to record toolkit usage" });
+    }
+  });
+
+  app.post("/api/toolkit-leaderboard/outcomes", async (req, res) => {
+    try {
+      const { toolkitItemId, outcomes } = req.body;
+      
+      if (!toolkitItemId || !outcomes) {
+        return res.status(400).json({ error: "Missing toolkitItemId or outcomes" });
+      }
+
+      const entry = await storage.updateToolkitOutcomes(toolkitItemId, outcomes);
+      if (!entry) {
+        return res.status(404).json({ error: "Toolkit item not found in leaderboard" });
+      }
+      res.json(entry);
+    } catch (error) {
+      console.error("Error updating toolkit outcomes:", error);
+      res.status(500).json({ error: "Failed to update toolkit outcomes" });
+    }
+  });
+
   return httpServer;
 }
 
