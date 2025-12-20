@@ -56,8 +56,8 @@ export const availableChatbots: Chatbot[] = [
   {
     id: "xai-grok",
     provider: "xai",
-    displayName: "Grok 2",
-    model: "grok-2-1212",
+    displayName: "Grok 3",
+    model: "grok-3",
     description: "xAI's Grok model - requires XAI_API_KEY",
     enabled: !!process.env.XAI_API_KEY,
   },
