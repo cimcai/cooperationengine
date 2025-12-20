@@ -17,7 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { Session, Run, Chatbot } from "@shared/schema";
 
 interface SessionResults {
@@ -52,8 +52,8 @@ export default function ResultsPage() {
   });
 
   // Initialize selected runs when data loads
-  useMemo(() => {
-    if (results?.runs && selectedRuns.length === 0) {
+  useEffect(() => {
+    if (results?.runs && results.runs.length > 0 && selectedRuns.length === 0) {
       setSelectedRuns(results.runs.map(r => r.id));
     }
   }, [results?.runs]);
@@ -213,11 +213,23 @@ export default function ResultsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportCSV} data-testid="button-export-csv">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={exportCSV} 
+            disabled={selectedRuns.length === 0}
+            data-testid="button-export-csv"
+          >
             <Download className="h-4 w-4 mr-2" />
             CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={exportJSON} data-testid="button-export-json">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={exportJSON} 
+            disabled={selectedRuns.length === 0}
+            data-testid="button-export-json"
+          >
             <Download className="h-4 w-4 mr-2" />
             JSON
           </Button>
