@@ -17,7 +17,7 @@ export interface Chatbot {
 export interface PromptStep {
   id: string;
   order: number;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
 }
 
@@ -55,7 +55,7 @@ export const insertSessionSchema = z.object({
   prompts: z.array(z.object({
     id: z.string(),
     order: z.number(),
-    role: z.enum(["user", "assistant"]),
+    role: z.enum(["user", "assistant", "system"]),
     content: z.string().min(1, "Content is required"),
   })).min(1, "At least one prompt is required"),
 });
