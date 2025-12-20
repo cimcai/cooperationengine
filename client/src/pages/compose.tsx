@@ -1088,7 +1088,7 @@ export default function ComposePage() {
                       <div className="space-y-6">
                         {(() => {
                           // Get unique step orders from responses
-                          const stepOrders = [...new Set(currentRun.responses.map(r => r.stepOrder))].sort((a, b) => a - b);
+                          const stepOrders = Array.from(new Set(currentRun.responses.map(r => r.stepOrder))).sort((a, b) => a - b);
                           // Get the expected total steps from prompts (excluding system prompts)
                           const expectedSteps = prompts.filter(p => p.role !== "system").length || stepOrders.length || 1;
                           const stepsToShow = Math.max(expectedSteps, stepOrders.length > 0 ? Math.max(...stepOrders) + 1 : 0);
