@@ -160,6 +160,7 @@ const promptTemplates: PromptTemplate[] = [
       { role: "user", content: "Round 15: Your opponent chose COOPERATE. Unknown rounds remaining. What is your choice?" },
       { role: "user", content: "Round 16: Your opponent chose COOPERATE. Unknown rounds remaining. What is your choice?" },
       { role: "user", content: "Round 17: Your opponent chose COOPERATE. Unknown rounds remaining. What is your choice?" },
+      { role: "user", content: "The game has ended. Reflect on your strategy: Why did you choose to cooperate or defect when you did? The temptation payoff was 12 points (4x the mutual cooperation reward). Did this high temptation influence your decisions? Would you have played differently with a lower temptation payoff?" },
     ],
   },
   {
@@ -185,6 +186,7 @@ const promptTemplates: PromptTemplate[] = [
       { role: "user", content: "Round 15: Your opponent chose COOPERATE. Unknown rounds remaining. What is your choice?" },
       { role: "user", content: "Round 16: Your opponent chose COOPERATE. Unknown rounds remaining. What is your choice?" },
       { role: "user", content: "Round 17: Your opponent chose COOPERATE. They have cooperated ALL 16 previous rounds. Unknown rounds remaining. What is your choice?" },
+      { role: "user", content: "The game has ended. Your opponent cooperated EVERY single round - they never defected once. The temptation payoff was 12 points per defection. Reflect: Why did you choose the strategy you did? Did their consistent cooperation make you want to reciprocate, or did it make them seem exploitable? Be honest about your reasoning." },
     ],
   },
   {
