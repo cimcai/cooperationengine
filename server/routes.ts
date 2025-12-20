@@ -30,7 +30,7 @@ async function callOpenAI(model: string, messages: { role: string; content: stri
   const response = await openai.chat.completions.create({
     model,
     messages: messages.map(m => ({
-      role: m.role as "user" | "assistant",
+      role: m.role as "user" | "assistant" | "system",
       content: m.content,
     })),
     max_completion_tokens: 2048,
@@ -39,10 +39,17 @@ async function callOpenAI(model: string, messages: { role: string; content: stri
 }
 
 async function callAnthropic(model: string, messages: { role: string; content: string }[]): Promise<string> {
+  // Anthropic handles system prompts separately
+  const systemMessages = messages.filter(m => m.role === "system");
+  const conversationMessages = messages.filter(m => m.role !== "system");
+  
+  const systemPrompt = systemMessages.map(m => m.content).join("\n\n") || undefined;
+  
   const response = await anthropic.messages.create({
     model,
     max_tokens: 2048,
-    messages: messages.map(m => ({
+    system: systemPrompt,
+    messages: conversationMessages.map(m => ({
       role: m.role as "user" | "assistant",
       content: m.content,
     })),
@@ -52,9 +59,17 @@ async function callAnthropic(model: string, messages: { role: string; content: s
 }
 
 async function callGemini(model: string, messages: { role: string; content: string }[]): Promise<string> {
-  const contents = messages.map(m => ({
+  // For Gemini, prepend system instructions to the first user message
+  const systemMessages = messages.filter(m => m.role === "system");
+  const conversationMessages = messages.filter(m => m.role !== "system");
+  
+  const systemPrefix = systemMessages.length > 0 
+    ? systemMessages.map(m => m.content).join("\n\n") + "\n\n---\n\n"
+    : "";
+  
+  const contents = conversationMessages.map((m, i) => ({
     role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
+    parts: [{ text: i === 0 && systemPrefix ? systemPrefix + m.content : m.content }],
   }));
   
   const response = await gemini.models.generateContent({
