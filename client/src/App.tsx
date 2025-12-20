@@ -18,6 +18,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={ComposePage} />
+      <Route path="/compose" component={ComposePage} />
       <Route path="/history" component={HistoryPage} />
       <Route path="/results/:sessionId" component={ResultsPage} />
       <Route path="/settings" component={SettingsPage} />
