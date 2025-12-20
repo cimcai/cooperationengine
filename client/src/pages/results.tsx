@@ -122,39 +122,50 @@ export default function ResultsPage() {
     return null;
   };
 
-  // Export results as CSV
+  // Escape CSV field (handle quotes and commas)
+  const escapeCSV = (str: string): string => {
+    if (str.includes('"') || str.includes(',') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  // Export results as CSV - full content
   const exportCSV = () => {
-    if (!results || !gridData.length) return;
+    if (!results) return;
     
-    const headers = ["Round", ...activeChatbotIds.map(id => {
-      const bot = chatbots.find(c => c.id === id);
-      return bot?.displayName || id;
-    })];
+    const lines: string[] = [];
     
-    const rows = gridData.map(row => [
-      `Round ${row.round + 1}`,
-      ...activeChatbotIds.map(id => {
-        const data = row.data[id];
-        if (data.errors.length > 0) return "ERROR";
-        if (data.responses.length === 0) return "N/A";
-        // For aggregated view, show decision counts
-        const decisions = data.responses.map(r => extractDecision(r)).filter(Boolean);
-        if (decisions.length > 0) {
-          const counts: Record<string, number> = {};
-          decisions.forEach(d => { counts[d!] = (counts[d!] || 0) + 1; });
-          return Object.entries(counts).map(([k, v]) => `${k}:${v}`).join("; ");
-        }
-        return data.responses[0]?.substring(0, 100) || "N/A";
-      })
-    ]);
+    // Header row
+    lines.push(["Run", "Round", "Chatbot", "Response", "Latency (ms)", "Error"].map(escapeCSV).join(","));
     
-    const csv = [headers, ...rows].map(row => row.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    // Export all runs with full response data
+    const runsToExport = results.runs.filter(r => selectedRuns.includes(r.id));
+    
+    runsToExport.forEach((run, runIdx) => {
+      run.responses.forEach(response => {
+        const chatbot = chatbots.find(c => c.id === response.chatbotId);
+        const roundLabel = results.roundLabels[response.stepOrder]?.prompt || `Round ${response.stepOrder + 1}`;
+        
+        lines.push([
+          escapeCSV(`Run ${runIdx + 1}`),
+          escapeCSV(roundLabel),
+          escapeCSV(chatbot?.displayName || response.chatbotId),
+          escapeCSV(response.content || ""),
+          response.latencyMs?.toString() || "",
+          escapeCSV(response.error || "")
+        ].join(","));
+      });
+    });
+    
+    const csv = lines.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `${results.session.title || "results"}-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Export as JSON
