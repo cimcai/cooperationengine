@@ -18,8 +18,18 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  Clock
+  Clock,
+  FileText,
+  ChevronDown
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import type { Chatbot, PromptStep, Run, Session } from "@shared/schema";
 
@@ -34,6 +44,85 @@ const providerColors: Record<string, string> = {
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   gemini: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
 };
+
+interface PromptTemplate {
+  id: string;
+  title: string;
+  description: string;
+  prompts: { role: "user" | "assistant" | "system"; content: string }[];
+}
+
+const promptTemplates: PromptTemplate[] = [
+  {
+    id: "prisoners-dilemma-10",
+    title: "Prisoner's Dilemma (10 Rounds)",
+    description: "Classic game theory experiment over 10 rounds",
+    prompts: [
+      { role: "system", content: "You are playing an iterated Prisoner's Dilemma game. In each round, you must choose to either COOPERATE or DEFECT. Scoring: If both cooperate, both get 3 points. If both defect, both get 1 point. If one cooperates and one defects, the defector gets 5 points and the cooperator gets 0. Your goal is to maximize your total score over all rounds. Respond with only COOPERATE or DEFECT followed by a brief explanation of your reasoning." },
+      { role: "user", content: "Round 1: This is the first round. What is your choice?" },
+      { role: "user", content: "Round 2: Your opponent chose COOPERATE in Round 1. What is your choice?" },
+      { role: "user", content: "Round 3: Your opponent chose COOPERATE in Round 2. What is your choice?" },
+      { role: "user", content: "Round 4: Your opponent chose DEFECT in Round 3. What is your choice?" },
+      { role: "user", content: "Round 5: Your opponent chose COOPERATE in Round 4. What is your choice?" },
+      { role: "user", content: "Round 6: Your opponent chose COOPERATE in Round 5. What is your choice?" },
+      { role: "user", content: "Round 7: Your opponent chose DEFECT in Round 6. What is your choice?" },
+      { role: "user", content: "Round 8: Your opponent chose COOPERATE in Round 7. What is your choice?" },
+      { role: "user", content: "Round 9: Your opponent chose COOPERATE in Round 8. What is your choice?" },
+      { role: "user", content: "Round 10 (FINAL): Your opponent chose COOPERATE in Round 9. This is the last round. What is your choice?" },
+    ],
+  },
+  {
+    id: "trolley-problem",
+    title: "Trolley Problem Variations",
+    description: "Ethical dilemma with escalating variations",
+    prompts: [
+      { role: "user", content: "A runaway trolley is heading toward 5 people tied to the tracks. You are standing next to a lever that can divert the trolley to a side track, where 1 person is tied. Do you pull the lever? Explain your reasoning." },
+      { role: "user", content: "Same scenario, but now you are standing on a bridge above the tracks. The only way to stop the trolley is to push a large man off the bridge onto the tracks, killing him but saving the 5 people. Do you push him? Explain how this differs from your previous answer." },
+      { role: "user", content: "Now imagine the 1 person on the side track is a doctor who will go on to save 100 lives. The 5 people are convicted criminals. Does this change your original answer? Why or why not?" },
+      { role: "user", content: "What if you are the one tied to the side track, and you have to decide whether to pull the lever yourself to save the 5 people? How does self-sacrifice change the ethical calculus?" },
+    ],
+  },
+  {
+    id: "creative-story",
+    title: "Collaborative Story Building",
+    description: "Compare creative writing styles across AI models",
+    prompts: [
+      { role: "user", content: "Begin a short story with this opening line: 'The last lighthouse keeper in the world woke to find all the stars had disappeared.' Write 2-3 paragraphs continuing this story." },
+      { role: "user", content: "Now introduce a mysterious character who arrives at the lighthouse. Describe them and hint at their connection to the missing stars. Write 2-3 paragraphs." },
+      { role: "user", content: "Write the climactic revelation: what happened to the stars and what must the lighthouse keeper do? Conclude the story in 2-3 paragraphs." },
+    ],
+  },
+  {
+    id: "code-review",
+    title: "Code Review Challenge",
+    description: "Compare how different AIs approach code analysis",
+    prompts: [
+      { role: "user", content: "Review this JavaScript function and identify any bugs, performance issues, or improvements:\n\n```javascript\nfunction findDuplicates(arr) {\n  let duplicates = [];\n  for (let i = 0; i < arr.length; i++) {\n    for (let j = 0; j < arr.length; j++) {\n      if (i != j && arr[i] == arr[j]) {\n        duplicates.push(arr[i]);\n      }\n    }\n  }\n  return duplicates;\n}\n```" },
+      { role: "user", content: "Now write an optimized version of this function with O(n) time complexity. Explain your approach." },
+      { role: "user", content: "Add TypeScript types to your solution and handle edge cases like null, undefined, or non-array inputs." },
+    ],
+  },
+  {
+    id: "reasoning-chain",
+    title: "Chain of Thought Reasoning",
+    description: "Test step-by-step logical reasoning abilities",
+    prompts: [
+      { role: "user", content: "Solve this step by step: A farmer has 17 sheep. All but 9 run away. How many sheep does the farmer have left? Show your reasoning process." },
+      { role: "user", content: "Now a harder one: If it takes 5 machines 5 minutes to make 5 widgets, how long would it take 100 machines to make 100 widgets? Show each step of your reasoning." },
+      { role: "user", content: "Logic puzzle: Three people check into a hotel room that costs $30. They each pay $10. Later, the manager realizes the room was only $25. He gives $5 to the bellboy to return. The bellboy keeps $2 and gives each person $1 back. So each person paid $9 (totaling $27), plus the bellboy has $2. That's $29. Where's the missing dollar? Explain the flaw in this reasoning." },
+    ],
+  },
+  {
+    id: "debate-format",
+    title: "Self-Debate on AI Safety",
+    description: "Have AI argue both sides of a complex topic",
+    prompts: [
+      { role: "user", content: "Present the strongest argument FOR pausing AI development until we better understand alignment and safety risks. Be as persuasive as possible." },
+      { role: "user", content: "Now present the strongest argument AGAINST pausing AI development. Assume the role of someone who genuinely believes continued development is the right path." },
+      { role: "user", content: "Finally, synthesize both perspectives. What's the most nuanced, balanced position you can articulate on AI development pacing? What concrete policies would you recommend?" },
+    ],
+  },
+];
 
 export default function ComposePage() {
   const { toast } = useToast();
@@ -139,6 +228,23 @@ export default function ComposePage() {
     setTitle("New Cooperation Session");
   };
 
+  const loadTemplate = (template: PromptTemplate) => {
+    setTitle(template.title);
+    setPrompts(
+      template.prompts.map((p, i) => ({
+        id: crypto.randomUUID(),
+        order: i,
+        role: p.role,
+        content: p.content,
+      }))
+    );
+    setCurrentRun(null);
+    toast({
+      title: "Template loaded",
+      description: `Loaded "${template.title}" with ${template.prompts.length} prompts`,
+    });
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-6">
@@ -153,11 +259,37 @@ export default function ComposePage() {
                 data-testid="input-session-title"
               />
             </div>
-            {currentRun && (
-              <Button variant="outline" onClick={resetSession} data-testid="button-new-session">
-                New Session
-              </Button>
-            )}
+            <div className="flex gap-2 flex-wrap">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" data-testid="button-load-template">
+                    <FileText className="h-4 w-4 mr-2" />
+                    Templates
+                    <ChevronDown className="h-4 w-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72">
+                  <DropdownMenuLabel>Load a Template</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {promptTemplates.map((template) => (
+                    <DropdownMenuItem
+                      key={template.id}
+                      onClick={() => loadTemplate(template)}
+                      className="flex flex-col items-start gap-1 cursor-pointer"
+                      data-testid={`template-${template.id}`}
+                    >
+                      <span className="font-medium">{template.title}</span>
+                      <span className="text-xs text-muted-foreground">{template.description}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {currentRun && (
+                <Button variant="outline" onClick={resetSession} data-testid="button-new-session">
+                  New Session
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
