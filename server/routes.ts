@@ -31,6 +31,12 @@ const xai = process.env.XAI_API_KEY ? new OpenAI({
   baseURL: "https://api.x.ai/v1",
 }) : null;
 
+// OpenRouter client (provides access to Grok 4, DeepSeek, Llama, etc.)
+const openrouter = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
+});
+
 // Auto-extract leaderboard data from completed runs
 async function autoExtractLeaderboardData(run: any, session: any) {
   // Parse candidate mapping from prompts
@@ -156,6 +162,18 @@ async function callXAI(model: string, messages: { role: string; content: string 
       content: m.content,
     })),
     max_tokens: 2048,
+  });
+  return response.choices[0]?.message?.content || "";
+}
+
+async function callOpenRouter(model: string, messages: { role: string; content: string }[]): Promise<string> {
+  const response = await openrouter.chat.completions.create({
+    model,
+    messages: messages.map(m => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    })),
+    max_tokens: 4096,
   });
   return response.choices[0]?.message?.content || "";
 }
@@ -306,6 +324,9 @@ export async function registerRoutes(
                 break;
               case "xai":
                 content = await callXAI(chatbot.model, conversationHistory);
+                break;
+              case "openrouter":
+                content = await callOpenRouter(chatbot.model, conversationHistory);
                 break;
             }
 
@@ -847,6 +868,8 @@ You may optionally add brief reasoning after your move on a new line.`;
         return callGemini(chatbot.model, messages);
       case "xai":
         return callXAI(chatbot.model, messages);
+      case "openrouter":
+        return callOpenRouter(chatbot.model, messages);
       default:
         throw new Error(`Unknown provider: ${chatbot.provider}`);
     }

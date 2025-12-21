@@ -30,9 +30,11 @@ Preferred communication style: Simple, everyday language.
 - **Migrations**: Drizzle Kit with migrations stored in `/migrations`
 
 ### AI Provider Integration
-- **OpenAI**: GPT-5.1, GPT-4o models via `@anthropic-ai/sdk`
+- **OpenAI**: GPT-5.1, GPT-4o models via OpenAI SDK
 - **Anthropic**: Claude Sonnet 4.5, Claude Opus 4.5 via Anthropic SDK
 - **Google**: Gemini 2.5 Flash, Gemini 2.5 Pro via `@google/genai`
+- **xAI**: Grok 3 via direct xAI API (requires XAI_API_KEY)
+- **OpenRouter**: Grok 4, DeepSeek R1, Llama 4 Maverick via OpenRouter integration
 - **Configuration**: Environment variables for API keys and base URLs through Replit AI Integrations
 
 ### Key Design Decisions

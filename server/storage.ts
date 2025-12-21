@@ -61,6 +61,30 @@ export const availableChatbots: Chatbot[] = [
     description: "xAI's Grok model - requires XAI_API_KEY",
     enabled: !!process.env.XAI_API_KEY,
   },
+  {
+    id: "openrouter-grok4",
+    provider: "openrouter",
+    displayName: "Grok 4",
+    model: "x-ai/grok-4",
+    description: "xAI's flagship reasoning model via OpenRouter",
+    enabled: true,
+  },
+  {
+    id: "openrouter-deepseek",
+    provider: "openrouter",
+    displayName: "DeepSeek R1",
+    model: "deepseek/deepseek-r1",
+    description: "DeepSeek's reasoning model via OpenRouter",
+    enabled: true,
+  },
+  {
+    id: "openrouter-llama",
+    provider: "openrouter",
+    displayName: "Llama 4 Maverick",
+    model: "meta-llama/llama-4-maverick",
+    description: "Meta's Llama 4 Maverick model via OpenRouter",
+    enabled: true,
+  },
 ];
 
 export interface IStorage {
