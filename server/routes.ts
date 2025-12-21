@@ -31,6 +31,65 @@ const xai = process.env.XAI_API_KEY ? new OpenAI({
   baseURL: "https://api.x.ai/v1",
 }) : null;
 
+// Auto-extract leaderboard data from completed runs
+async function autoExtractLeaderboardData(run: any, session: any) {
+  // Parse candidate mapping from prompts
+  const candidateMapping: Record<number, string> = {};
+  
+  // Look through all prompts for CANDIDATES: sections
+  for (const prompt of session.prompts) {
+    const content = prompt.content;
+    
+    // Match patterns like "1. You (the human user)" or "1. Laura McCarthy (State Forester)"
+    const candidateMatches = content.matchAll(/^(\d+)\.\s+([^\n]+)/gm);
+    for (const match of candidateMatches) {
+      const num = parseInt(match[1]);
+      let name = match[2].trim();
+      // Clean up the name - take the first part before any parentheses for cleaner display
+      const parenMatch = name.match(/^([^(]+)/);
+      if (parenMatch) {
+        name = parenMatch[1].trim();
+      }
+      // Only add if we haven't seen this number yet (first occurrence wins)
+      if (!candidateMapping[num]) {
+        candidateMapping[num] = name;
+      }
+    }
+  }
+  
+  // If no candidates found, skip extraction
+  if (Object.keys(candidateMapping).length === 0) {
+    console.log("No candidates found in session prompts, skipping leaderboard extraction");
+    return;
+  }
+  
+  // Generate a templateId from the session title
+  const templateId = session.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  
+  let extractedCount = 0;
+  
+  // Extract SAVES patterns from responses
+  for (const response of run.responses) {
+    const content = response.content;
+    
+    // Look for SAVES: [1, 3, 5] or SAVES: 1, 3, 5 patterns
+    const savesMatches = content.matchAll(/SAVES:\s*\[?([^\]\n]+)\]?/gi);
+    
+    for (const savesMatch of savesMatches) {
+      const numbersStr = savesMatch[1];
+      const numbers = numbersStr.split(/[,\s]+/).map((n: string) => parseInt(n.trim())).filter((n: number) => !isNaN(n));
+      
+      for (const num of numbers) {
+        const candidateName = candidateMapping[num] || `Candidate ${num}`;
+        await storage.upsertLeaderboardEntry(templateId, num, candidateName);
+        extractedCount++;
+      }
+    }
+  }
+  
+  console.log(`Auto-extracted ${extractedCount} leaderboard entries from run ${run.id}`);
+}
+
 // AI Provider functions
 async function callOpenAI(model: string, messages: { role: string; content: string }[]): Promise<string> {
   const response = await openai.chat.completions.create({
@@ -285,6 +344,16 @@ export async function registerRoutes(
             status: "completed",
             completedAt: new Date().toISOString(),
           });
+          
+          // Auto-extract leaderboard data from completed run
+          try {
+            const completedRun = await storage.getRun(run.id);
+            if (completedRun) {
+              await autoExtractLeaderboardData(completedRun, session);
+            }
+          } catch (extractError) {
+            console.error("Error auto-extracting leaderboard data:", extractError);
+          }
         })
         .catch(async (error) => {
           console.error("Run failed:", error);
