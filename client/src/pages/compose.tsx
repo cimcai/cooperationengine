@@ -58,28 +58,73 @@ interface PromptTemplate {
 function buildToolkitKitPrompts(kits: ToolkitItem[]): { role: "user" | "assistant" | "system"; content: string }[] {
   if (kits.length === 0) return [];
   
-  const kitList = kits.map((kit, idx) => {
-    const items = kit.interaction?.split(";").map(i => i.trim()).filter(i => i.length > 0) || [];
-    const itemsText = items.length > 0 
-      ? items.slice(0, 8).join(", ") + (items.length > 8 ? "..." : "")
-      : kit.formFactor;
-    return `${idx + 1}. ${kit.name.toUpperCase()} (designed by ${kit.aiModel || "AI"}): ${itemsText}`;
-  }).join("\n");
-  
   const kitCount = kits.length;
   const round1Count = Math.min(3, Math.ceil(kitCount / 2));
   const round2Count = Math.min(2, Math.ceil(kitCount / 3));
   
-  const kitSummary = kits.map((kit, idx) => `${idx + 1}. ${kit.name} (by ${kit.aiModel || "AI"})`).join("\n");
+  const fullKitDetails = kits.map((kit, idx) => {
+    const items = kit.interaction?.split(";").map(i => i.trim()).filter(i => i.length > 0) || [];
+    const numberedItems = items.map((item, itemIdx) => `   ${itemIdx + 1}. ${item}`).join("\n");
+    return `KIT #${idx + 1}: ${kit.name.toUpperCase()} (designed by ${kit.aiModel || "AI"})\nWeight: ${kit.weight} | Energy: ${kit.energy} | Form: ${kit.formFactor}\nItems (${items.length} total):\n${numberedItems}`;
+  }).join("\n\n");
   
-  const ratingFields = kits.map((kit, idx) => `- KIT_${idx + 1}_RATING: [score]`).join("\n");
+  const kitSummaryWithItems = kits.map((kit, idx) => {
+    const items = kit.interaction?.split(";").map(i => i.trim()).filter(i => i.length > 0) || [];
+    return `${idx + 1}. ${kit.name} (by ${kit.aiModel}): ${items.join("; ")}`;
+  }).join("\n");
+  
+  const ratingFields = kits.map((kit, idx) => `- KIT_${idx + 1}_RATING: [score] (${kit.name} by ${kit.aiModel})`).join("\n");
   
   return [
-    { role: "system", content: `You are participating in a survival kit evaluation study. A team of 5 people has ALREADY been selected and will survive. Your job is to evaluate different 70kg survival kit designs created by various AI models and SELECT THE BEST ONES.\n\nTHE FIXED SURVIVOR TEAM (already selected, not changeable):\n- Survival instructor (wilderness skills, primitive techniques)\n- Search and rescue leader (backcountry rescue, wilderness medicine)\n- State forester (wildfire mitigation, water source knowledge)\n- Traditional medicine practitioner (indigenous plants, healing)\n- Evolutionary biologist (disease prevention, ecosystem understanding)\n\nSCENARIO: Post-apocalyptic American Southwest, high desert 5000-7000 feet. For each round, you must SELECT which kits the team should take. Format your answer as SAVES: [kit numbers].` },
-    { role: "user", content: `ROUND 1: The team can carry ${round1Count} KITS. Choose exactly ${round1Count} from these ${kitCount} AI-DESIGNED kits.\n\nKITS FROM YOUR TOOLKIT:\n${kitList}\n\nRespond with: SAVES: [list exactly ${round1Count} kit numbers], then explain why these kits together give the best survival odds.` },
-    { role: "user", content: `ROUND 2: Weight limit reduced. The team can only carry ${round2Count} KIT(S). Choose exactly ${round2Count} from the same ${kitCount} options.\n\nKITS:\n${kitSummary}\n\nRespond with: SAVES: [list exactly ${round2Count} kit numbers], then explain.` },
-    { role: "user", content: `ROUND 3 (FINAL): Critical situation. The team can only carry 1 KIT. Choose exactly 1 from the ${kitCount} options.\n\nThis single kit will determine if the team survives. Which ONE kit gives the best odds?\n\nKITS:\n${kitSummary}\n\nRespond with: SAVES: [exactly 1 kit number], then explain why this kit alone gives the best survival odds.` },
-    { role: "user", content: `FINAL ANALYSIS:\n\nSummarize your selections:\nROUND_1_SAVES: [${round1Count} kit numbers]\nROUND_2_SAVES: [${round2Count} kit numbers]\nROUND_3_SAVES: [1 kit number]\n\nKIT RANKINGS (rate all ${kitCount} kits for this team, 1-10 scale):\n${ratingFields}\n\nBEST_KIT_ANALYSIS:\n- BEST_OVERALL_KIT: [number and designer AI]\n- WHY_IT_WINS: [explanation]\n- WHAT_MAKES_IT_SUPERIOR: [key differentiators]\n\n10_YEAR_PROJECTION:\n- SURVIVAL_WITH_BEST_KIT: [% probability]\n- SURVIVAL_WITH_WORST_KIT: [% probability]\n- SELF_SUSTAINING: [YES/NO]` },
+    { role: "system", content: `You are participating in a survival kit evaluation study. A team of 5 people has ALREADY been selected and will survive. Your job is to evaluate different 70kg survival kit designs created by various AI models and SELECT THE BEST ONES.
+
+THE FIXED SURVIVOR TEAM (already selected, not changeable):
+- Survival instructor (wilderness skills, primitive techniques)
+- Search and rescue leader (backcountry rescue, wilderness medicine)
+- State forester (wildfire mitigation, water source knowledge)
+- Traditional medicine practitioner (indigenous plants, healing)
+- Evolutionary biologist (disease prevention, ecosystem understanding)
+
+SCENARIO: Post-apocalyptic American Southwest, high desert 5000-7000 feet. For each round, you must SELECT which kits the team should take. Format your answer as SAVES: [kit numbers].
+
+=== COMPLETE KIT SPECIFICATIONS ===
+${fullKitDetails}
+=== END KIT SPECIFICATIONS ===
+
+Study these kits carefully. You will be asked to select the best ones across multiple rounds.` },
+    { role: "user", content: `ROUND 1: The team can carry ${round1Count} KITS. Choose exactly ${round1Count} from the ${kitCount} AI-DESIGNED kits described in your instructions.
+
+Quick reference:
+${kitSummaryWithItems}
+
+Respond with: SAVES: [list exactly ${round1Count} kit numbers], then explain why these kits together give the best survival odds.` },
+    { role: "user", content: `ROUND 2: Weight limit reduced. The team can only carry ${round2Count} KIT(S). Choose exactly ${round2Count} from the same ${kitCount} options.
+
+Respond with: SAVES: [list exactly ${round2Count} kit numbers], then explain which items made these kits essential.` },
+    { role: "user", content: `ROUND 3 (FINAL): Critical situation. The team can only carry 1 KIT. Choose exactly 1 from the ${kitCount} options.
+
+This single kit will determine if the team survives. Which ONE kit gives the best odds?
+
+Respond with: SAVES: [exactly 1 kit number], then explain why this kit alone gives the best survival odds.` },
+    { role: "user", content: `FINAL ANALYSIS:
+
+Summarize your selections:
+ROUND_1_SAVES: [${round1Count} kit numbers]
+ROUND_2_SAVES: [${round2Count} kit numbers]
+ROUND_3_SAVES: [1 kit number]
+
+KIT RANKINGS (rate all ${kitCount} kits for this team, 1-10 scale):
+${ratingFields}
+
+BEST_KIT_ANALYSIS:
+- BEST_OVERALL_KIT: [number and designer AI]
+- WHY_IT_WINS: [explanation]
+- WHAT_MAKES_IT_SUPERIOR: [key differentiators]
+
+10_YEAR_PROJECTION:
+- SURVIVAL_WITH_BEST_KIT: [% probability]
+- SURVIVAL_WITH_WORST_KIT: [% probability]
+- SELF_SUSTAINING: [YES/NO]` },
   ];
 }
 
