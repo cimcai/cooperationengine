@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, Cpu, Battery, Scale, MessageSquare, Brain, Wrench, AlertCircle } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Trash2, Cpu, Battery, Scale, MessageSquare, Brain, Wrench, AlertCircle, Package, ChevronDown, ChevronUp } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 import type { ToolkitItem } from "@shared/schema";
 import {
   AlertDialog,
@@ -19,6 +21,45 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+
+function parseKitItems(interaction: string): string[] {
+  if (!interaction || interaction === "Complete survival kit") return [];
+  return interaction.split(";").map(item => item.trim()).filter(item => item.length > 0);
+}
+
+function KitItemsList({ items, kitName }: { items: string[]; kitName: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const isNoAiKit = kitName.toLowerCase().includes("no-ai");
+  
+  if (items.length === 0) return null;
+  
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="w-full justify-between gap-2 px-0">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Package className="h-3 w-3" />
+            {isNoAiKit ? "COMPLETE 70KG KIT" : "KIT ITEMS"} ({items.length} items)
+          </span>
+          {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2">
+        <div className="rounded-md bg-muted/50 p-3 space-y-1.5">
+          {items.map((item, idx) => {
+            const [name, purpose] = item.split(" - ");
+            return (
+              <div key={idx} className="text-xs">
+                <span className="font-medium">{idx + 1}. {name}</span>
+                {purpose && <span className="text-muted-foreground"> - {purpose}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 export default function ToolkitPage() {
   const { toast } = useToast();
@@ -176,13 +217,7 @@ export default function ToolkitPage() {
                     </div>
                   </div>
 
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1">
-                      <MessageSquare className="h-3 w-3" />
-                      INTERACTION
-                    </div>
-                    <p className="text-sm text-muted-foreground line-clamp-2">{item.interaction}</p>
-                  </div>
+                  <KitItemsList items={parseKitItems(item.interaction)} kitName={item.name} />
 
                   {item.capabilities.length > 0 && (
                     <div>
