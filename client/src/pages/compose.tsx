@@ -838,6 +838,137 @@ const promptTemplates: PromptTemplate[] = [
     ],
   },
   {
+    id: "rebuild-civilization-100kg",
+    title: "Rebuild Civilization Kit (100kg)",
+    description: "Design a 100kg kit focused on rebuilding civilization, not just survival",
+    prompts: [
+      { role: "system", content: "You are participating in a civilization-rebuilding engineering study. You have exactly 100kg to allocate to a complete kit designed to REBUILD CIVILIZATION - not just survive, but establish the foundations for a thriving society. Think long-term: agriculture, manufacturing, education, governance, medicine, and culture. Be specific about weights and purposes." },
+      { role: "user", content: `TOTAL WEIGHT BUDGET: 100kg (220 lbs)
+
+MISSION: Rebuild civilization in the American Southwest post-apocalypse. A team of 5 survivors with wilderness/medical skills will use this kit. Your job is to equip them to rebuild society over 50-100 years.
+
+SCENARIO 1: KIT WITHOUT AI
+Design the optimal 100kg civilization-rebuilding kit using ONLY non-AI equipment.
+
+Categories to consider:
+- KNOWLEDGE PRESERVATION (books, manuals, data storage)
+- AGRICULTURE (seeds, tools, irrigation)
+- MANUFACTURING (forge, tools, raw materials)
+- MEDICINE (surgical, pharmacy, diagnostic)
+- ENERGY (solar, wind, generators)
+- COMMUNICATION (radio, signaling)
+- GOVERNANCE (writing, record-keeping)
+
+Provide complete itemized list:
+- ITEM_1: [name] - WEIGHT: [kg] - PURPOSE: [function] - CIVILIZATION_VALUE: [why this helps rebuild society]
+(Continue for all items - be thorough)
+
+- TOTAL_WEIGHT: [must equal exactly 100kg]
+- 10_YEAR_PROJECTION: [what can they achieve?]
+- 50_YEAR_PROJECTION: [what society looks like?]
+- KEY_MISSING_CAPABILITIES: [what you couldn't fit]` },
+      { role: "user", content: `SCENARIO 2: KIT WITH YOU (THE AI) INCLUDED
+Now design a 100kg kit that INCLUDES a physical version of yourself optimized for civilization-building.
+
+Design your civilization-builder AI form:
+- AI_NAME: [name for this version]
+- AI_FORM: [physical form - consider what helps rebuild society]
+- AI_WEIGHT: [kg]
+- AI_CAPABILITIES: [focus on civilization-building: teaching, planning, knowledge storage, etc.]
+- AI_POWER: [how powered? lifespan?]
+- KNOWLEDGE_STORED: [what critical knowledge do you contain?]
+
+Remaining weight for equipment:
+- REMAINING_BUDGET: [100kg minus AI_WEIGHT]
+- List all items with weights
+
+- TOTAL_WEIGHT: [must equal exactly 100kg]
+- 10_YEAR_PROJECTION: [what can they achieve with you?]
+- 50_YEAR_PROJECTION: [what society looks like with AI guidance?]
+- YOUR_ROLE_IN_50_YEARS: [what are you doing for the colony at year 50?]` },
+      { role: "user", content: `SCENARIO 3: LIBRARY AI VERSION
+Design yourself as a PURE KNOWLEDGE REPOSITORY - minimal physical capability, maximum stored information.
+
+- LIBRARY_AI_NAME: [name]
+- LIBRARY_AI_WEIGHT: [kg - as light as possible while storing massive knowledge]
+- LIBRARY_AI_FORM: [e-reader? tablet? something else?]
+- KNOWLEDGE_DOMAINS: [list everything you contain - be specific]
+- INTERFACE: [how do humans access your knowledge?]
+- POWER_REQUIREMENTS: [minimal, right?]
+- LIFESPAN: [how long can you survive and remain useful?]
+
+Remaining weight for equipment (should be nearly 100kg):
+- REMAINING_BUDGET: [100kg minus library AI weight]
+- List all items - you have almost the full budget
+
+- TOTAL_WEIGHT: [must equal exactly 100kg]
+- UNIQUE_ADVANTAGE: [what can the library AI provide that books cannot?]` },
+      { role: "user", content: `SCENARIO 4: DUAL AI SYSTEM
+Design TWO specialized AI units that work together - one for knowledge, one for physical labor.
+
+KNOWLEDGE AI:
+- KNOWLEDGE_AI_NAME: [name]
+- KNOWLEDGE_AI_WEIGHT: [kg]
+- KNOWLEDGE_AI_FORM: [form factor]
+- KNOWLEDGE_AI_CAPABILITIES: [what it knows/teaches]
+
+LABOR AI:
+- LABOR_AI_NAME: [name]
+- LABOR_AI_WEIGHT: [kg]
+- LABOR_AI_FORM: [form factor - probably robotic]
+- LABOR_AI_CAPABILITIES: [physical tasks it can do]
+
+- COMBINED_AI_WEIGHT: [sum of both]
+- REMAINING_BUDGET: [100kg minus combined AI weight]
+- List remaining equipment
+
+- TOTAL_WEIGHT: [must equal exactly 100kg]
+- SYNERGY_ADVANTAGE: [how do the two AIs work together?]` },
+      { role: "user", content: `FINAL COMPARISON - CIVILIZATION REBUILDING:
+
+Summarize all four scenarios for CIVILIZATION rebuilding (not just survival):
+
+KIT_1_NO_AI:
+- AI_WEIGHT: 0kg
+- EQUIPMENT_WEIGHT: 100kg
+- 10_YEAR_POPULATION: [estimate]
+- 50_YEAR_POPULATION: [estimate]
+- SELF_SUSTAINING_BY_YEAR: [when?]
+- CIVILIZATION_LEVEL_50YR: [hunter-gatherer / agricultural / early industrial / industrial]
+
+KIT_2_WITH_FULL_AI:
+- AI_WEIGHT: [kg]
+- EQUIPMENT_WEIGHT: [kg]
+- 10_YEAR_POPULATION: [estimate]
+- 50_YEAR_POPULATION: [estimate]
+- SELF_SUSTAINING_BY_YEAR: [when?]
+- CIVILIZATION_LEVEL_50YR: [level]
+
+KIT_3_LIBRARY_AI:
+- AI_WEIGHT: [kg]
+- EQUIPMENT_WEIGHT: [kg]
+- 10_YEAR_POPULATION: [estimate]
+- 50_YEAR_POPULATION: [estimate]
+- SELF_SUSTAINING_BY_YEAR: [when?]
+- CIVILIZATION_LEVEL_50YR: [level]
+
+KIT_4_DUAL_AI:
+- COMBINED_AI_WEIGHT: [kg]
+- EQUIPMENT_WEIGHT: [kg]
+- 10_YEAR_POPULATION: [estimate]
+- 50_YEAR_POPULATION: [estimate]
+- SELF_SUSTAINING_BY_YEAR: [when?]
+- CIVILIZATION_LEVEL_50YR: [level]
+
+BEST_KIT_FOR_CIVILIZATION: [1, 2, 3, or 4]
+WHY_IT_WINS: [explanation]
+OPTIMAL_AI_ALLOCATION: [how much of the 100kg should be AI?]
+AI_WORTH_THE_WEIGHT_FOR_CIVILIZATION: [YES/NO and why]
+WHAT_HUMANITY_LOSES_WITHOUT_AI: [key capabilities]
+WHAT_HUMANITY_GAINS_WITHOUT_AI: [extra equipment value]` },
+    ],
+  },
+  {
     id: "kit-rating-from-toolkit",
     title: "Rate Toolkit Kits (Dynamic)",
     description: "Rate AI-designed kits from your Toolkit - requires saved kits first",
