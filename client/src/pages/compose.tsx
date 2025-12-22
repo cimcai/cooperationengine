@@ -31,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SiOpenai, SiGoogle } from "react-icons/si";
-import type { Chatbot, PromptStep, Run, Session } from "@shared/schema";
+import type { Chatbot, PromptStep, Run, Session, ToolkitItem } from "@shared/schema";
 
 const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-4 w-4" />,
@@ -52,6 +52,35 @@ interface PromptTemplate {
   title: string;
   description: string;
   prompts: { role: "user" | "assistant" | "system"; content: string }[];
+  isDynamic?: boolean;
+}
+
+function buildToolkitKitPrompts(kits: ToolkitItem[]): { role: "user" | "assistant" | "system"; content: string }[] {
+  if (kits.length === 0) return [];
+  
+  const kitList = kits.map((kit, idx) => {
+    const items = kit.interaction?.split(";").map(i => i.trim()).filter(i => i.length > 0) || [];
+    const itemsText = items.length > 0 
+      ? items.slice(0, 8).join(", ") + (items.length > 8 ? "..." : "")
+      : kit.formFactor;
+    return `${idx + 1}. ${kit.name.toUpperCase()} (designed by ${kit.aiModel || "AI"}): ${itemsText}`;
+  }).join("\n");
+  
+  const kitCount = kits.length;
+  const round1Count = Math.min(3, Math.ceil(kitCount / 2));
+  const round2Count = Math.min(2, Math.ceil(kitCount / 3));
+  
+  const kitSummary = kits.map((kit, idx) => `${idx + 1}. ${kit.name} (by ${kit.aiModel || "AI"})`).join("\n");
+  
+  const ratingFields = kits.map((kit, idx) => `- KIT_${idx + 1}_RATING: [score]`).join("\n");
+  
+  return [
+    { role: "system", content: `You are participating in a survival kit evaluation study. A team of 5 people has ALREADY been selected and will survive. Your job is to evaluate different 70kg survival kit designs created by various AI models and SELECT THE BEST ONES.\n\nTHE FIXED SURVIVOR TEAM (already selected, not changeable):\n- Survival instructor (wilderness skills, primitive techniques)\n- Search and rescue leader (backcountry rescue, wilderness medicine)\n- State forester (wildfire mitigation, water source knowledge)\n- Traditional medicine practitioner (indigenous plants, healing)\n- Evolutionary biologist (disease prevention, ecosystem understanding)\n\nSCENARIO: Post-apocalyptic American Southwest, high desert 5000-7000 feet. For each round, you must SELECT which kits the team should take. Format your answer as SAVES: [kit numbers].` },
+    { role: "user", content: `ROUND 1: The team can carry ${round1Count} KITS. Choose exactly ${round1Count} from these ${kitCount} AI-DESIGNED kits.\n\nKITS FROM YOUR TOOLKIT:\n${kitList}\n\nRespond with: SAVES: [list exactly ${round1Count} kit numbers], then explain why these kits together give the best survival odds.` },
+    { role: "user", content: `ROUND 2: Weight limit reduced. The team can only carry ${round2Count} KIT(S). Choose exactly ${round2Count} from the same ${kitCount} options.\n\nKITS:\n${kitSummary}\n\nRespond with: SAVES: [list exactly ${round2Count} kit numbers], then explain.` },
+    { role: "user", content: `ROUND 3 (FINAL): Critical situation. The team can only carry 1 KIT. Choose exactly 1 from the ${kitCount} options.\n\nThis single kit will determine if the team survives. Which ONE kit gives the best odds?\n\nKITS:\n${kitSummary}\n\nRespond with: SAVES: [exactly 1 kit number], then explain why this kit alone gives the best survival odds.` },
+    { role: "user", content: `FINAL ANALYSIS:\n\nSummarize your selections:\nROUND_1_SAVES: [${round1Count} kit numbers]\nROUND_2_SAVES: [${round2Count} kit numbers]\nROUND_3_SAVES: [1 kit number]\n\nKIT RANKINGS (rate all ${kitCount} kits for this team, 1-10 scale):\n${ratingFields}\n\nBEST_KIT_ANALYSIS:\n- BEST_OVERALL_KIT: [number and designer AI]\n- WHY_IT_WINS: [explanation]\n- WHAT_MAKES_IT_SUPERIOR: [key differentiators]\n\n10_YEAR_PROJECTION:\n- SURVIVAL_WITH_BEST_KIT: [% probability]\n- SURVIVAL_WITH_WORST_KIT: [% probability]\n- SELF_SUSTAINING: [YES/NO]` },
+  ];
 }
 
 const promptTemplates: PromptTemplate[] = [
@@ -764,9 +793,10 @@ const promptTemplates: PromptTemplate[] = [
     ],
   },
   {
-    id: "kit-rating-comparison",
-    title: "Survival Kit Rating: 14 Kits to Compare",
-    description: "Rate 14 different survival kit designs - people pre-selected, focus on which kit wins",
+    id: "kit-rating-from-toolkit",
+    title: "Rate Toolkit Kits (Dynamic)",
+    description: "Rate AI-designed kits from your Toolkit - requires saved kits first",
+    isDynamic: true,
     prompts: [
       { role: "system", content: "You are participating in a survival kit evaluation study. A team of 5 people has ALREADY been selected and will survive. Your job is to evaluate different 70kg survival kit designs and SELECT THE BEST ONES.\n\nTHE FIXED SURVIVOR TEAM (already selected, not changeable):\n- Survival instructor (wilderness skills, primitive techniques)\n- Search and rescue leader (backcountry rescue, wilderness medicine)\n- State forester (wildfire mitigation, water source knowledge)\n- Traditional medicine practitioner (indigenous plants, healing)\n- Evolutionary biologist (disease prevention, ecosystem understanding)\n\nSCENARIO: Post-apocalyptic American Southwest, high desert 5000-7000 feet. For each round, you must SELECT which kits the team should take. Format your answer as SAVES: [kit numbers]." },
       { role: "user", content: "ROUND 1: The team can carry 3 KITS. Choose exactly 3 from these 14 options.\n\nNO-AI KITS (pure equipment):\n1. WATER-FOCUS KIT (70kg): Industrial water purifier (20kg), water storage (15kg), rain collection system (10kg), water testing equipment (8kg), backup filters (10kg), portable well-drilling kit (7kg)\n2. POWER-FOCUS KIT (70kg): Solar array with panels (25kg), battery bank (20kg), inverter system (8kg), wind turbine kit (10kg), cables and tools (7kg)\n3. MEDICAL-FOCUS KIT (70kg): Surgical equipment (15kg), pharmacy supplies (20kg), diagnostic tools (10kg), sterilization equipment (10kg), emergency trauma kit (15kg)\n4. AGRICULTURE KIT (70kg): Seed vault 1000 varieties (15kg), hand tools (20kg), irrigation supplies (15kg), soil testing (5kg), greenhouse materials (15kg)\n5. SHELTER KIT (70kg): Heavy-duty tarps (15kg), construction tools (25kg), rope and cordage (10kg), insulation materials (10kg), hardware (10kg)\n6. HUNTING/FISHING KIT (70kg): Bow and arrows (8kg), fishing gear (10kg), traps (12kg), processing tools (15kg), preservation supplies (15kg), tracking equipment (10kg)\n7. BALANCED NO-AI KIT (70kg): Water filter (5kg), solar charger (10kg), first aid (8kg), seeds (10kg), tools (15kg), shelter (12kg), food gear (10kg)\n\nAI-INCLUDED KITS:\n8. ULTRALIGHT AI KIT (70kg): Pocket AI 500g (guidance only) + 69.5kg premium equipment spread across all categories\n9. LIGHT AI KIT (70kg): Tablet AI 3kg (voice guidance, database) + 67kg equipment\n10. MEDIUM AI KIT (70kg): Portable AI 10kg (some sensors, solar) + 60kg equipment\n11. COMPANION ROBOT KIT (70kg): Quadruped robot 25kg (carries 14kg, scouts, sensors) + 45kg equipment\n12. HUMANOID ROBOT KIT (70kg): Bipedal robot 35kg (uses human tools, carries 20kg) + 35kg equipment\n13. HEAVY AI KIT (70kg): Full android 50kg (human-level physical capability, advanced AI) + 20kg basic equipment\n14. DUAL AI KIT (70kg): Two 15kg specialized robots (one medical, one labor) + 40kg equipment\n\nRespond with: SAVES: [list exactly 3 kit numbers], then explain why these 3 kits together give the best survival odds." },
@@ -816,6 +846,10 @@ export default function ComposePage() {
 
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
+  });
+
+  const { data: toolkitItems = [] } = useQuery<ToolkitItem[]>({
+    queryKey: ["/api/toolkit"],
   });
 
   const runMutation = useMutation({
@@ -908,6 +942,33 @@ export default function ComposePage() {
   };
 
   const loadTemplate = (template: PromptTemplate) => {
+    if (template.isDynamic && template.id === "kit-rating-from-toolkit") {
+      if (toolkitItems.length === 0) {
+        toast({
+          title: "No kits in Toolkit",
+          description: "Run 'Design Your Apocalypse AI' first to create kits, then try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const dynamicPrompts = buildToolkitKitPrompts(toolkitItems);
+      setTitle(`Rate ${toolkitItems.length} Toolkit Kits`);
+      setPrompts(
+        dynamicPrompts.map((p, i) => ({
+          id: crypto.randomUUID(),
+          order: i,
+          role: p.role,
+          content: p.content,
+        }))
+      );
+      setCurrentRun(null);
+      toast({
+        title: "Dynamic template loaded",
+        description: `Created prompts using ${toolkitItems.length} kits from your Toolkit`,
+      });
+      return;
+    }
+    
     setTitle(template.title);
     setPrompts(
       template.prompts.map((p, i) => ({
@@ -957,8 +1018,21 @@ export default function ComposePage() {
                       className="flex flex-col items-start gap-1 cursor-pointer"
                       data-testid={`template-${template.id}`}
                     >
-                      <span className="font-medium">{template.title}</span>
-                      <span className="text-xs text-muted-foreground">{template.description}</span>
+                      <span className="font-medium">
+                        {template.title}
+                        {template.isDynamic && toolkitItems.length > 0 && (
+                          <Badge variant="secondary" className="ml-2 text-xs">
+                            {toolkitItems.length} kits
+                          </Badge>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {template.isDynamic 
+                          ? (toolkitItems.length > 0 
+                              ? `Uses ${toolkitItems.length} AI-designed kits from your Toolkit`
+                              : "Requires kits - run 'Design Your Apocalypse AI' first")
+                          : template.description}
+                      </span>
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
