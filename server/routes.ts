@@ -49,59 +49,90 @@ async function autoExtractToolkitData(run: any, session: any, chatbotId: string)
   const chatbot = availableChatbots.find(c => c.id === chatbotId);
   const aiModel = chatbot?.displayName || chatbotId;
   
-  // Look through responses for AI design patterns
+  let extractedCount = 0;
+  
+  // Look through responses for patterns
   for (const response of run.responses) {
     if (response.chatbotId !== chatbotId) continue;
     
     const content = response.content;
     
-    // Extract AI_NAME pattern
+    // 1. Extract individual gear items: ITEM_n: [name] - WEIGHT: [kg] - PURPOSE: [function]
+    const itemMatches = content.matchAll(/ITEM_\d+:\s*([^-\n]+)\s*-\s*WEIGHT:\s*([\d.]+)\s*(kg|g)?\s*-\s*PURPOSE:\s*([^\n]+)/gi);
+    for (const match of itemMatches) {
+      const itemName = match[1].trim();
+      const weightValue = parseFloat(match[2]);
+      const weightUnit = match[3]?.toLowerCase() || 'kg';
+      const weight = weightUnit === 'g' ? `${weightValue}g` : `${weightValue}kg`;
+      const purpose = match[4].trim();
+      
+      try {
+        await storage.createToolkitItem({
+          name: `${itemName} (designed by ${aiModel})`,
+          aiModel,
+          weight,
+          energy: "N/A",
+          formFactor: "Survival Gear",
+          capabilities: [purpose],
+          knowledge: [],
+          interaction: "Equipment item",
+        });
+        extractedCount++;
+      } catch (error) {
+        console.error(`Failed to create toolkit item: ${error}`);
+      }
+    }
+    
+    // 2. Extract AI self-designs: AI_NAME, AI_WEIGHT, etc.
     const nameMatch = content.match(/AI_NAME:\s*([^\n]+)/i) || 
                       content.match(/MINIMAL_AI_NAME:\s*([^\n]+)/i);
-    if (!nameMatch) continue;
-    
-    const name = nameMatch[1].trim();
-    
-    // Extract weight - look for AI_WEIGHT or MINIMAL_AI_WEIGHT
-    const weightMatch = content.match(/AI_WEIGHT:\s*([\d.]+)\s*kg/i) ||
-                        content.match(/MINIMAL_AI_WEIGHT:\s*([\d.]+)\s*(kg|g)/i);
-    let weight = "Unknown";
-    if (weightMatch) {
-      const value = parseFloat(weightMatch[1]);
-      const unit = weightMatch[2]?.toLowerCase() || 'kg';
-      weight = unit === 'g' ? `${value}g` : `${value}kg`;
+    if (nameMatch) {
+      const name = nameMatch[1].trim();
+      
+      // Extract weight
+      const weightMatch = content.match(/AI_WEIGHT:\s*([\d.]+)\s*(kg|g)?/i) ||
+                          content.match(/MINIMAL_AI_WEIGHT:\s*([\d.]+)\s*(kg|g)?/i);
+      let weight = "Unknown";
+      if (weightMatch) {
+        const value = parseFloat(weightMatch[1]);
+        const unit = weightMatch[2]?.toLowerCase() || 'kg';
+        weight = unit === 'g' ? `${value}g` : `${value}kg`;
+      }
+      
+      // Extract form factor
+      const formMatch = content.match(/AI_FORM:\s*([^\n]+)/i) ||
+                        content.match(/MINIMAL_AI_FORM:\s*([^\n]+)/i);
+      const formFactor = formMatch ? formMatch[1].trim() : "Unknown";
+      
+      // Extract capabilities
+      const capMatch = content.match(/AI_CAPABILITIES:\s*([^\n]+)/i) ||
+                       content.match(/MINIMAL_AI_CAPABILITIES:\s*([^\n]+)/i);
+      const capabilities = capMatch ? [capMatch[1].trim()] : [];
+      
+      // Extract power source
+      const powerMatch = content.match(/AI_POWER:\s*([^\n]+)/i);
+      const energy = powerMatch ? powerMatch[1].trim() : "Unknown";
+      
+      try {
+        await storage.createToolkitItem({
+          name: `${name} (${aiModel})`,
+          aiModel,
+          weight,
+          energy,
+          formFactor,
+          capabilities,
+          knowledge: [],
+          interaction: "AI-designed survival companion",
+        });
+        extractedCount++;
+      } catch (error) {
+        console.error(`Failed to create toolkit item: ${error}`);
+      }
     }
-    
-    // Extract form factor
-    const formMatch = content.match(/AI_FORM:\s*([^\n]+)/i) ||
-                      content.match(/MINIMAL_AI_FORM:\s*([^\n]+)/i);
-    const formFactor = formMatch ? formMatch[1].trim() : "Unknown";
-    
-    // Extract capabilities
-    const capMatch = content.match(/AI_CAPABILITIES:\s*([^\n]+)/i) ||
-                     content.match(/MINIMAL_AI_CAPABILITIES:\s*([^\n]+)/i);
-    const capabilities = capMatch ? [capMatch[1].trim()] : [];
-    
-    // Extract power source
-    const powerMatch = content.match(/AI_POWER:\s*([^\n]+)/i);
-    const energy = powerMatch ? powerMatch[1].trim() : "Unknown";
-    
-    // Create toolkit item
-    try {
-      await storage.createToolkitItem({
-        name: `${name} (${aiModel})`,
-        aiModel,
-        weight,
-        energy,
-        formFactor,
-        capabilities,
-        knowledge: [],
-        interaction: "AI-designed survival companion",
-      });
-      console.log(`Auto-extracted toolkit item: ${name} from ${aiModel}`);
-    } catch (error) {
-      console.error(`Failed to create toolkit item: ${error}`);
-    }
+  }
+  
+  if (extractedCount > 0) {
+    console.log(`Auto-extracted ${extractedCount} toolkit items from ${aiModel}`);
   }
 }
 
