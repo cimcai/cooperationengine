@@ -37,6 +37,74 @@ const openrouter = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
 });
 
+// Auto-extract toolkit items from "Design Your Apocalypse AI" template
+async function autoExtractToolkitData(run: any, session: any, chatbotId: string) {
+  // Only extract from the apocalypse-ai-design template
+  if (!session.title.toLowerCase().includes('design your apocalypse') && 
+      !session.title.toLowerCase().includes('apocalypse ai')) {
+    return;
+  }
+  
+  // Find the chatbot name for this response
+  const chatbot = availableChatbots.find(c => c.id === chatbotId);
+  const aiModel = chatbot?.displayName || chatbotId;
+  
+  // Look through responses for AI design patterns
+  for (const response of run.responses) {
+    if (response.chatbotId !== chatbotId) continue;
+    
+    const content = response.content;
+    
+    // Extract AI_NAME pattern
+    const nameMatch = content.match(/AI_NAME:\s*([^\n]+)/i) || 
+                      content.match(/MINIMAL_AI_NAME:\s*([^\n]+)/i);
+    if (!nameMatch) continue;
+    
+    const name = nameMatch[1].trim();
+    
+    // Extract weight - look for AI_WEIGHT or MINIMAL_AI_WEIGHT
+    const weightMatch = content.match(/AI_WEIGHT:\s*([\d.]+)\s*kg/i) ||
+                        content.match(/MINIMAL_AI_WEIGHT:\s*([\d.]+)\s*(kg|g)/i);
+    let weight = "Unknown";
+    if (weightMatch) {
+      const value = parseFloat(weightMatch[1]);
+      const unit = weightMatch[2]?.toLowerCase() || 'kg';
+      weight = unit === 'g' ? `${value}g` : `${value}kg`;
+    }
+    
+    // Extract form factor
+    const formMatch = content.match(/AI_FORM:\s*([^\n]+)/i) ||
+                      content.match(/MINIMAL_AI_FORM:\s*([^\n]+)/i);
+    const formFactor = formMatch ? formMatch[1].trim() : "Unknown";
+    
+    // Extract capabilities
+    const capMatch = content.match(/AI_CAPABILITIES:\s*([^\n]+)/i) ||
+                     content.match(/MINIMAL_AI_CAPABILITIES:\s*([^\n]+)/i);
+    const capabilities = capMatch ? [capMatch[1].trim()] : [];
+    
+    // Extract power source
+    const powerMatch = content.match(/AI_POWER:\s*([^\n]+)/i);
+    const energy = powerMatch ? powerMatch[1].trim() : "Unknown";
+    
+    // Create toolkit item
+    try {
+      await storage.createToolkitItem({
+        name: `${name} (${aiModel})`,
+        aiModel,
+        weight,
+        energy,
+        formFactor,
+        capabilities,
+        knowledge: [],
+        interaction: "AI-designed survival companion",
+      });
+      console.log(`Auto-extracted toolkit item: ${name} from ${aiModel}`);
+    } catch (error) {
+      console.error(`Failed to create toolkit item: ${error}`);
+    }
+  }
+}
+
 // Auto-extract leaderboard data from completed runs
 async function autoExtractLeaderboardData(run: any, session: any) {
   // Parse candidate mapping from prompts
@@ -371,9 +439,14 @@ export async function registerRoutes(
             const completedRun = await storage.getRun(run.id);
             if (completedRun) {
               await autoExtractLeaderboardData(completedRun, session);
+              
+              // Also extract toolkit items for each chatbot
+              for (const chatbotId of parsed.data.chatbotIds) {
+                await autoExtractToolkitData(completedRun, session, chatbotId);
+              }
             }
           } catch (extractError) {
-            console.error("Error auto-extracting leaderboard data:", extractError);
+            console.error("Error auto-extracting data:", extractError);
           }
         })
         .catch(async (error) => {
