@@ -197,6 +197,9 @@ async function autoExtractLeaderboardData(run: any, session: any) {
   // Generate a templateId from the session title
   const templateId = session.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   
+  // Get the active epoch for recording leaderboard data
+  const activeEpoch = await storage.getActiveEpoch();
+  
   let extractedCount = 0;
   
   // Extract SAVES patterns from responses
@@ -212,7 +215,7 @@ async function autoExtractLeaderboardData(run: any, session: any) {
       
       for (const num of numbers) {
         const candidateName = candidateMapping[num] || `Candidate ${num}`;
-        await storage.upsertLeaderboardEntry(templateId, num, candidateName);
+        await storage.upsertLeaderboardEntry(activeEpoch.id, templateId, num, candidateName);
         extractedCount++;
       }
     }
@@ -727,11 +730,43 @@ export async function registerRoutes(
     }
   });
 
+  // Epoch routes
+  app.get("/api/epochs", async (req, res) => {
+    try {
+      const epochs = await storage.getEpochs();
+      res.json(epochs);
+    } catch (error) {
+      console.error("Error fetching epochs:", error);
+      res.status(500).json({ error: "Failed to fetch epochs" });
+    }
+  });
+
+  app.get("/api/epochs/active", async (req, res) => {
+    try {
+      const epoch = await storage.getActiveEpoch();
+      res.json(epoch);
+    } catch (error) {
+      console.error("Error fetching active epoch:", error);
+      res.status(500).json({ error: "Failed to fetch active epoch" });
+    }
+  });
+
+  app.post("/api/epochs/archive", async (req, res) => {
+    try {
+      const newEpoch = await storage.archiveCurrentEpoch();
+      res.json(newEpoch);
+    } catch (error) {
+      console.error("Error archiving epoch:", error);
+      res.status(500).json({ error: "Failed to archive epoch" });
+    }
+  });
+
   // Leaderboard routes
   app.get("/api/leaderboard", async (req, res) => {
     try {
+      const epochId = req.query.epochId as string | undefined;
       const templateId = req.query.templateId as string | undefined;
-      const entries = await storage.getLeaderboardEntries(templateId);
+      const entries = await storage.getLeaderboardEntries(epochId, templateId);
       res.json(entries);
     } catch (error) {
       console.error("Error fetching leaderboard:", error);
@@ -752,6 +787,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Run not found" });
       }
 
+      const activeEpoch = await storage.getActiveEpoch();
       const results: { candidate: string; count: number }[] = [];
       
       // Extract SAVES patterns from responses
@@ -765,7 +801,7 @@ export async function registerRoutes(
           
           for (const num of numbers) {
             const candidateName = candidateMapping[num] || `Candidate ${num}`;
-            await storage.upsertLeaderboardEntry(templateId, num, candidateName);
+            await storage.upsertLeaderboardEntry(activeEpoch.id, templateId, num, candidateName);
             
             const existing = results.find(r => r.candidate === candidateName);
             if (existing) {
@@ -848,7 +884,8 @@ export async function registerRoutes(
   // Toolkit Leaderboard routes
   app.get("/api/toolkit-leaderboard", async (req, res) => {
     try {
-      const entries = await storage.getToolkitLeaderboard();
+      const epochId = req.query.epochId as string | undefined;
+      const entries = await storage.getToolkitLeaderboard(epochId);
       res.json(entries);
     } catch (error) {
       console.error("Error fetching toolkit leaderboard:", error);
@@ -864,7 +901,8 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing toolkitItemId" });
       }
 
-      const entry = await storage.upsertToolkitUsage(toolkitItemId, templateId);
+      const activeEpoch = await storage.getActiveEpoch();
+      const entry = await storage.upsertToolkitUsage(toolkitItemId, activeEpoch.id, templateId);
       res.json(entry);
     } catch (error) {
       console.error("Error recording toolkit usage:", error);
