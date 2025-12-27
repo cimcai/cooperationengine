@@ -20,7 +20,9 @@ import {
   XCircle,
   Clock,
   FileText,
-  ChevronDown
+  ChevronDown,
+  BarChart3,
+  Repeat
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -30,6 +32,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import type { Chatbot, PromptStep, Run, Session, ToolkitItem } from "@shared/schema";
 
@@ -1019,6 +1028,10 @@ export default function ComposePage() {
   ]);
   const [selectedChatbots, setSelectedChatbots] = useState<string[]>([]);
   const [currentRun, setCurrentRun] = useState<Run | null>(null);
+  const [batchCount, setBatchCount] = useState(1);
+  const [batchRuns, setBatchRuns] = useState<Run[]>([]);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const [showBatchStats, setShowBatchStats] = useState(false);
 
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
@@ -1030,25 +1043,63 @@ export default function ComposePage() {
 
   const runMutation = useMutation({
     mutationFn: async () => {
-      const sessionRes = await apiRequest("POST", "/api/sessions", {
-        title,
-        prompts: prompts.filter(p => p.content.trim()),
-      });
-      const session: Session = await sessionRes.json();
-      
-      const runRes = await apiRequest("POST", `/api/sessions/${session.id}/run`, {
-        chatbotIds: selectedChatbots,
-      });
-      const run: Run = await runRes.json();
-      return run;
+      if (batchCount === 1) {
+        const sessionRes = await apiRequest("POST", "/api/sessions", {
+          title,
+          prompts: prompts.filter(p => p.content.trim()),
+        });
+        const session: Session = await sessionRes.json();
+        
+        const runRes = await apiRequest("POST", `/api/sessions/${session.id}/run`, {
+          chatbotIds: selectedChatbots,
+        });
+        const run: Run = await runRes.json();
+        return { single: run, batch: null };
+      } else {
+        setBatchProgress({ current: 0, total: batchCount });
+        setBatchRuns([]);
+        setShowBatchStats(false);
+        
+        const completedRuns: Run[] = [];
+        
+        for (let i = 0; i < batchCount; i++) {
+          setBatchProgress({ current: i + 1, total: batchCount });
+          
+          const sessionRes = await apiRequest("POST", "/api/sessions", {
+            title: `${title} (Run ${i + 1}/${batchCount})`,
+            prompts: prompts.filter(p => p.content.trim()),
+          });
+          const session: Session = await sessionRes.json();
+          
+          const runRes = await apiRequest("POST", `/api/sessions/${session.id}/run`, {
+            chatbotIds: selectedChatbots,
+          });
+          const run: Run = await runRes.json();
+          
+          const completedRun = await waitForRunCompletion(run.id);
+          completedRuns.push(completedRun);
+          setBatchRuns([...completedRuns]);
+        }
+        
+        return { single: null, batch: completedRuns };
+      }
     },
-    onSuccess: (run) => {
-      setCurrentRun(run);
-      pollForResults(run.id);
-      toast({
-        title: "Run started",
-        description: "Sending prompts to selected chatbots...",
-      });
+    onSuccess: (result) => {
+      if (result.single) {
+        setCurrentRun(result.single);
+        pollForResults(result.single.id);
+        toast({
+          title: "Run started",
+          description: "Sending prompts to selected chatbots...",
+        });
+      } else if (result.batch) {
+        setShowBatchStats(true);
+        queryClient.invalidateQueries({ queryKey: ["/api/history"] });
+        toast({
+          title: "Batch complete",
+          description: `Completed ${result.batch.length} runs. View statistics below.`,
+        });
+      }
     },
     onError: (error) => {
       toast({
@@ -1058,6 +1109,22 @@ export default function ComposePage() {
       });
     },
   });
+
+  const waitForRunCompletion = async (runId: string): Promise<Run> => {
+    return new Promise((resolve) => {
+      const poll = async () => {
+        const response = await fetch(`/api/runs/${runId}`);
+        const run: Run = await response.json();
+        
+        if (run.status === "completed" || run.status === "failed") {
+          resolve(run);
+        } else {
+          setTimeout(poll, 1000);
+        }
+      };
+      poll();
+    });
+  };
 
   const pollForResults = async (runId: string) => {
     const poll = async () => {
@@ -1320,25 +1387,58 @@ export default function ComposePage() {
                 </CardContent>
               </Card>
 
-              <Button
-                onClick={() => runMutation.mutate()}
-                disabled={!canRun || runMutation.isPending}
-                className="w-full"
-                size="lg"
-                data-testid="button-send-to-all"
-              >
-                {runMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Send to {selectedChatbots.length} Chatbot{selectedChatbots.length !== 1 ? 's' : ''}
-                  </>
-                )}
-              </Button>
+              <div className="flex gap-2 items-center">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-muted-foreground whitespace-nowrap">
+                    <Repeat className="h-4 w-4 inline mr-1" />
+                    Runs:
+                  </Label>
+                  <Select 
+                    value={batchCount.toString()} 
+                    onValueChange={(v) => setBatchCount(parseInt(v))}
+                    disabled={runMutation.isPending}
+                  >
+                    <SelectTrigger className="w-20" data-testid="select-batch-count">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1x</SelectItem>
+                      <SelectItem value="3">3x</SelectItem>
+                      <SelectItem value="5">5x</SelectItem>
+                      <SelectItem value="10">10x</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  onClick={() => runMutation.mutate()}
+                  disabled={!canRun || runMutation.isPending}
+                  className="flex-1"
+                  size="lg"
+                  data-testid="button-send-to-all"
+                >
+                  {runMutation.isPending ? (
+                    batchCount > 1 ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Run {batchProgress.current}/{batchProgress.total}...
+                      </>
+                    ) : (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Starting...
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4 mr-2" />
+                      {batchCount > 1 
+                        ? `Run ${batchCount}x on ${selectedChatbots.length} Chatbot${selectedChatbots.length !== 1 ? 's' : ''}`
+                        : `Send to ${selectedChatbots.length} Chatbot${selectedChatbots.length !== 1 ? 's' : ''}`
+                      }
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -1447,10 +1547,164 @@ export default function ComposePage() {
                   )}
                 </CardContent>
               </Card>
+
+              {showBatchStats && batchRuns.length > 0 && (
+                <Card className="mt-4">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4" />
+                      Batch Statistics ({batchRuns.length} runs)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <BatchStatsDisplay runs={batchRuns} chatbots={chatbots} />
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BatchStatsDisplay({ runs, chatbots }: { runs: Run[]; chatbots: Chatbot[] }) {
+  const extractSavesNumbers = (content: string): number[] => {
+    const savesMatch = content.match(/SAVES:\s*\[?([0-9,\s]+)\]?/i);
+    if (savesMatch) {
+      return savesMatch[1].split(/[,\s]+/).map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+    }
+    return [];
+  };
+
+  const aggregateStats = () => {
+    const statsByModel: Record<string, {
+      totalRuns: number;
+      selectionCounts: Record<number, number>;
+      avgLatency: number;
+      errors: number;
+    }> = {};
+
+    runs.forEach(run => {
+      run.responses.forEach(response => {
+        if (!statsByModel[response.chatbotId]) {
+          statsByModel[response.chatbotId] = {
+            totalRuns: 0,
+            selectionCounts: {},
+            avgLatency: 0,
+            errors: 0,
+          };
+        }
+        
+        const stats = statsByModel[response.chatbotId];
+        stats.totalRuns++;
+        
+        if (response.error) {
+          stats.errors++;
+        } else {
+          stats.avgLatency = (stats.avgLatency * (stats.totalRuns - 1) + (response.latencyMs || 0)) / stats.totalRuns;
+          
+          const numbers = extractSavesNumbers(response.content || "");
+          numbers.forEach(num => {
+            stats.selectionCounts[num] = (stats.selectionCounts[num] || 0) + 1;
+          });
+        }
+      });
+    });
+
+    return statsByModel;
+  };
+
+  const stats = aggregateStats();
+  const allNumbers = new Set<number>();
+  Object.values(stats).forEach(s => {
+    Object.keys(s.selectionCounts).forEach(n => allNumbers.add(parseInt(n)));
+  });
+  const sortedNumbers = Array.from(allNumbers).sort((a, b) => a - b);
+
+  return (
+    <div className="space-y-4">
+      <div className="text-sm text-muted-foreground mb-2">
+        SAVES: pattern frequency across {runs.length} runs
+      </div>
+      
+      <ScrollArea className="h-[300px]">
+        <div className="space-y-4">
+          {Object.entries(stats).map(([chatbotId, modelStats]) => {
+            const chatbot = chatbots.find(c => c.id === chatbotId);
+            const topSelections = Object.entries(modelStats.selectionCounts)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 10);
+            
+            return (
+              <div key={chatbotId} className="border rounded-md p-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className={`flex h-6 w-6 items-center justify-center rounded ${providerColors[chatbot?.provider || 'openai']}`}>
+                    {providerIcons[chatbot?.provider || 'openai']}
+                  </div>
+                  <span className="text-sm font-medium">{chatbot?.displayName}</span>
+                  <Badge variant="outline" className="ml-auto text-xs">
+                    avg {Math.round(modelStats.avgLatency)}ms
+                  </Badge>
+                  {modelStats.errors > 0 && (
+                    <Badge variant="destructive" className="text-xs">
+                      {modelStats.errors} errors
+                    </Badge>
+                  )}
+                </div>
+                
+                {topSelections.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">Top selections:</div>
+                    <div className="flex flex-wrap gap-2">
+                      {topSelections.map(([num, count]) => {
+                        const percentage = Math.round((count / runs.length) * 100);
+                        return (
+                          <Badge 
+                            key={num} 
+                            variant="secondary"
+                            className="text-xs"
+                          >
+                            #{num}: {count}x ({percentage}%)
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground italic">
+                    No SAVES: pattern found in responses
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </ScrollArea>
+
+      {sortedNumbers.length > 0 && (
+        <div className="border-t pt-4">
+          <div className="text-sm font-medium mb-2">Overall Selection Frequency</div>
+          <div className="grid grid-cols-6 sm:grid-cols-9 gap-2">
+            {sortedNumbers.map(num => {
+              const totalSelections = Object.values(stats).reduce(
+                (sum, s) => sum + (s.selectionCounts[num] || 0), 0
+              );
+              const maxPossible = runs.length * Object.keys(stats).length;
+              const percentage = Math.round((totalSelections / maxPossible) * 100);
+              
+              return (
+                <div key={num} className="text-center p-2 bg-muted/50 rounded">
+                  <div className="text-lg font-bold">{num}</div>
+                  <div className="text-xs text-muted-foreground">{totalSelections}x</div>
+                  <div className="text-xs text-muted-foreground">({percentage}%)</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
