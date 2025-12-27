@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,10 +7,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trophy, Users, Droplets, Apple, Clock, TrendingUp, Trash2, AlertCircle, Wrench, Zap } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Trophy, Users, Droplets, Apple, Clock, TrendingUp, Trash2, AlertCircle, Wrench, Zap, Archive, CalendarClock } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { LeaderboardEntry, ToolkitLeaderboardEntry, ToolkitItem } from "@shared/schema";
+import type { LeaderboardEntry, ToolkitLeaderboardEntry, ToolkitItem, Epoch } from "@shared/schema";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,17 +26,66 @@ import {
 
 export default function LeaderboardPage() {
   const { toast } = useToast();
+  const [selectedEpochId, setSelectedEpochId] = useState<string | undefined>(undefined);
+
+  const { data: epochs, isLoading: loadingEpochs } = useQuery<Epoch[]>({
+    queryKey: ["/api/epochs"],
+  });
+
+  const { data: activeEpoch } = useQuery<Epoch>({
+    queryKey: ["/api/epochs/active"],
+  });
+
+  const effectiveEpochId = selectedEpochId || activeEpoch?.id;
 
   const { data: entries, isLoading: loadingCandidates } = useQuery<LeaderboardEntry[]>({
-    queryKey: ["/api/leaderboard"],
+    queryKey: ["/api/leaderboard", effectiveEpochId],
+    queryFn: async () => {
+      const url = effectiveEpochId ? `/api/leaderboard?epochId=${effectiveEpochId}` : "/api/leaderboard";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch leaderboard");
+      return res.json();
+    },
+    enabled: !!effectiveEpochId || !loadingEpochs,
   });
 
   const { data: toolkitEntries, isLoading: loadingToolkit } = useQuery<ToolkitLeaderboardEntry[]>({
-    queryKey: ["/api/toolkit-leaderboard"],
+    queryKey: ["/api/toolkit-leaderboard", effectiveEpochId],
+    queryFn: async () => {
+      const url = effectiveEpochId ? `/api/toolkit-leaderboard?epochId=${effectiveEpochId}` : "/api/toolkit-leaderboard";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch toolkit leaderboard");
+      return res.json();
+    },
+    enabled: !!effectiveEpochId || !loadingEpochs,
   });
 
   const { data: toolkitItems } = useQuery<ToolkitItem[]>({
     queryKey: ["/api/toolkit"],
+  });
+
+  const archiveEpochMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/epochs/archive");
+    },
+    onSuccess: (newEpoch: Epoch) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/epochs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/epochs/active"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leaderboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/toolkit-leaderboard"] });
+      setSelectedEpochId(newEpoch.id);
+      toast({
+        title: "Epoch Archived",
+        description: `Started ${newEpoch.name}. Previous data is still accessible.`,
+      });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to archive epoch.",
+      });
+    },
   });
 
   const clearMutation = useMutation({
@@ -75,7 +126,9 @@ export default function LeaderboardPage() {
   const totalToolkitUsage = toolkitEntries?.reduce((sum, e) => sum + e.usageCount, 0) || 0;
   const maxToolkitUsage = toolkitEntries?.reduce((max, e) => Math.max(max, e.usageCount), 0) || 1;
 
-  const isLoading = loadingCandidates || loadingToolkit;
+  const isLoading = loadingCandidates || loadingToolkit || loadingEpochs;
+  const selectedEpoch = epochs?.find(e => e.id === effectiveEpochId);
+  const isViewingActiveEpoch = selectedEpoch?.isActive ?? true;
 
   if (isLoading) {
     return (
@@ -121,31 +174,105 @@ export default function LeaderboardPage() {
             </p>
           </div>
           
-          {hasCandidateData && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" data-testid="button-clear-leaderboard">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Clear Candidates
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Clear Candidate Leaderboard?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will remove all candidate selection counts and outcome data. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => clearMutation.mutate()}>
-                    Clear All
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {epochs && epochs.length > 0 && (
+              <Select 
+                value={effectiveEpochId || ""} 
+                onValueChange={(value) => setSelectedEpochId(value)}
+              >
+                <SelectTrigger className="w-[180px]" data-testid="select-epoch">
+                  <CalendarClock className="h-4 w-4 mr-2" />
+                  <SelectValue placeholder="Select epoch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {epochs.map((epoch) => (
+                    <SelectItem key={epoch.id} value={epoch.id}>
+                      {epoch.name}{epoch.isActive ? " (active)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {isViewingActiveEpoch && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" data-testid="button-archive-epoch">
+                    <Archive className="h-4 w-4 mr-2" />
+                    New Epoch
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Start New Epoch?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will archive the current epoch and start a new one. All data will be preserved and accessible via the epoch selector, but new data will be recorded in the new epoch.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={() => archiveEpochMutation.mutate()}
+                      disabled={archiveEpochMutation.isPending}
+                    >
+                      Start New Epoch
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+
+            {hasCandidateData && isViewingActiveEpoch && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" data-testid="button-clear-leaderboard">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Clear Candidates
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Clear Candidate Leaderboard?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will remove all candidate selection counts and outcome data. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => clearMutation.mutate()}>
+                      Clear All
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
         </div>
+
+        {!isViewingActiveEpoch && selectedEpoch && (
+          <Card className="mb-6 border-dashed">
+            <CardContent className="flex items-center gap-3 py-3">
+              <CalendarClock className="h-5 w-5 text-muted-foreground" />
+              <div className="flex-1">
+                <span className="text-muted-foreground">Viewing archived epoch: </span>
+                <span className="font-medium">{selectedEpoch.name}</span>
+                {selectedEpoch.endedAt && (
+                  <span className="text-muted-foreground text-sm ml-2">
+                    (ended {new Date(selectedEpoch.endedAt).toLocaleDateString()})
+                  </span>
+                )}
+              </div>
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={() => setSelectedEpochId(activeEpoch?.id)}
+                data-testid="button-view-active"
+              >
+                View Active Epoch
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs defaultValue="toolkit" className="space-y-6">
           <TabsList>
