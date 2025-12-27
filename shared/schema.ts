@@ -208,9 +208,29 @@ export const insertToolkitItemSchema = z.object({
 
 export type InsertToolkitItem = z.infer<typeof insertToolkitItemSchema>;
 
+// Epochs - track data collection periods for leaderboard
+export const epochs = pgTable("epochs", {
+  id: varchar("id").primaryKey(),
+  name: text("name").notNull(),
+  epochNumber: integer("epoch_number").notNull(),
+  isActive: integer("is_active").notNull().default(1),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+});
+
+export interface Epoch {
+  id: string;
+  name: string;
+  epochNumber: number;
+  isActive: boolean;
+  startedAt: string;
+  endedAt?: string;
+}
+
 // Leaderboard - tracks selection frequency and outcome correlations
 export const leaderboardEntries = pgTable("leaderboard_entries", {
   id: varchar("id").primaryKey(),
+  epochId: varchar("epoch_id").notNull(),
   candidateNumber: integer("candidate_number").notNull(),
   candidateName: text("candidate_name").notNull(),
   templateId: varchar("template_id").notNull(),
@@ -225,6 +245,7 @@ export const leaderboardEntries = pgTable("leaderboard_entries", {
 
 export interface LeaderboardEntry {
   id: string;
+  epochId: string;
   candidateNumber: number;
   candidateName: string;
   templateId: string;
@@ -254,6 +275,7 @@ export type InsertLeaderboardEntry = z.infer<typeof insertLeaderboardEntrySchema
 // Toolkit Leaderboard - tracks toolkit item usage and effectiveness
 export const toolkitLeaderboard = pgTable("toolkit_leaderboard", {
   id: varchar("id").primaryKey(),
+  epochId: varchar("epoch_id").notNull(),
   toolkitItemId: varchar("toolkit_item_id").notNull().references(() => toolkitItems.id),
   templateId: varchar("template_id"),
   usageCount: integer("usage_count").notNull().default(0),
@@ -267,6 +289,7 @@ export const toolkitLeaderboard = pgTable("toolkit_leaderboard", {
 
 export interface ToolkitLeaderboardEntry {
   id: string;
+  epochId: string;
   toolkitItemId: string;
   toolkitItemName?: string;
   templateId?: string;

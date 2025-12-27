@@ -1,7 +1,7 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 // Available chatbots configuration
 export const availableChatbots: Chatbot[] = [
@@ -113,15 +113,20 @@ export interface IStorage {
   createToolkitItem(data: InsertToolkitItem): Promise<ToolkitItem>;
   deleteToolkitItem(id: string): Promise<void>;
   // Leaderboard methods
-  getLeaderboardEntries(templateId?: string): Promise<LeaderboardEntry[]>;
+  getLeaderboardEntries(epochId?: string, templateId?: string): Promise<LeaderboardEntry[]>;
   getLeaderboardEntry(id: string): Promise<LeaderboardEntry | undefined>;
-  upsertLeaderboardEntry(templateId: string, candidateNumber: number, candidateName: string): Promise<LeaderboardEntry>;
+  upsertLeaderboardEntry(epochId: string, templateId: string, candidateNumber: number, candidateName: string): Promise<LeaderboardEntry>;
   updateLeaderboardOutcomes(id: string, outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number }): Promise<LeaderboardEntry | undefined>;
   clearLeaderboard(): Promise<void>;
   // Toolkit Leaderboard methods
-  getToolkitLeaderboard(): Promise<ToolkitLeaderboardEntry[]>;
-  upsertToolkitUsage(toolkitItemId: string, templateId?: string): Promise<ToolkitLeaderboardEntry>;
+  getToolkitLeaderboard(epochId?: string): Promise<ToolkitLeaderboardEntry[]>;
+  upsertToolkitUsage(toolkitItemId: string, epochId: string, templateId?: string): Promise<ToolkitLeaderboardEntry>;
   updateToolkitOutcomes(toolkitItemId: string, outcomes: { waterSecurity?: number; foodSecurity?: number; selfSustaining?: number; population10yr?: number; population50yr?: number }): Promise<ToolkitLeaderboardEntry | undefined>;
+  // Epoch methods
+  getEpochs(): Promise<Epoch[]>;
+  getActiveEpoch(): Promise<Epoch>;
+  createEpoch(name: string): Promise<Epoch>;
+  archiveCurrentEpoch(): Promise<Epoch>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -184,6 +189,7 @@ function dbToolkitItemToToolkitItem(row: typeof toolkitItems.$inferSelect): Tool
 function dbLeaderboardEntryToLeaderboardEntry(row: typeof leaderboardEntries.$inferSelect): LeaderboardEntry {
   return {
     id: row.id,
+    epochId: row.epochId,
     candidateNumber: row.candidateNumber,
     candidateName: row.candidateName,
     templateId: row.templateId,
@@ -194,6 +200,17 @@ function dbLeaderboardEntryToLeaderboardEntry(row: typeof leaderboardEntries.$in
     avgPopulation10yr: row.avgPopulation10yr || undefined,
     avgPopulation50yr: row.avgPopulation50yr || undefined,
     lastUpdated: row.lastUpdated.toISOString(),
+  };
+}
+
+function dbEpochToEpoch(row: typeof epochs.$inferSelect): Epoch {
+  return {
+    id: row.id,
+    name: row.name,
+    epochNumber: row.epochNumber,
+    isActive: row.isActive === 1,
+    startedAt: row.startedAt.toISOString(),
+    endedAt: row.endedAt?.toISOString(),
   };
 }
 
@@ -379,14 +396,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Leaderboard methods
-  async getLeaderboardEntries(templateId?: string): Promise<LeaderboardEntry[]> {
+  async getLeaderboardEntries(epochId?: string, templateId?: string): Promise<LeaderboardEntry[]> {
+    const activeEpoch = epochId || (await this.getActiveEpoch()).id;
+    
     if (templateId) {
       const result = await db.select().from(leaderboardEntries)
-        .where(eq(leaderboardEntries.templateId, templateId))
+        .where(and(eq(leaderboardEntries.epochId, activeEpoch), eq(leaderboardEntries.templateId, templateId)))
         .orderBy(desc(leaderboardEntries.selectionCount));
       return result.map(dbLeaderboardEntryToLeaderboardEntry);
     }
-    const result = await db.select().from(leaderboardEntries).orderBy(desc(leaderboardEntries.selectionCount));
+    const result = await db.select().from(leaderboardEntries)
+      .where(eq(leaderboardEntries.epochId, activeEpoch))
+      .orderBy(desc(leaderboardEntries.selectionCount));
     return result.map(dbLeaderboardEntryToLeaderboardEntry);
   }
 
@@ -395,10 +416,13 @@ export class DatabaseStorage implements IStorage {
     return result[0] ? dbLeaderboardEntryToLeaderboardEntry(result[0]) : undefined;
   }
 
-  async upsertLeaderboardEntry(templateId: string, candidateNumber: number, candidateName: string): Promise<LeaderboardEntry> {
+  async upsertLeaderboardEntry(epochId: string, templateId: string, candidateNumber: number, candidateName: string): Promise<LeaderboardEntry> {
     const existing = await db.select().from(leaderboardEntries)
-      .where(eq(leaderboardEntries.templateId, templateId))
-      .where(eq(leaderboardEntries.candidateNumber, candidateNumber));
+      .where(and(
+        eq(leaderboardEntries.epochId, epochId),
+        eq(leaderboardEntries.templateId, templateId),
+        eq(leaderboardEntries.candidateNumber, candidateNumber)
+      ));
     
     if (existing[0]) {
       const result = await db.update(leaderboardEntries)
@@ -414,6 +438,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const result = await db.insert(leaderboardEntries).values({
       id,
+      epochId,
       candidateNumber,
       candidateName,
       templateId,
@@ -462,14 +487,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Toolkit Leaderboard methods
-  async getToolkitLeaderboard(): Promise<ToolkitLeaderboardEntry[]> {
-    const result = await db.select().from(toolkitLeaderboard).orderBy(desc(toolkitLeaderboard.usageCount));
+  async getToolkitLeaderboard(epochId?: string): Promise<ToolkitLeaderboardEntry[]> {
+    const activeEpoch = epochId || (await this.getActiveEpoch()).id;
+    const result = await db.select().from(toolkitLeaderboard)
+      .where(eq(toolkitLeaderboard.epochId, activeEpoch))
+      .orderBy(desc(toolkitLeaderboard.usageCount));
     const entries: ToolkitLeaderboardEntry[] = [];
     
     for (const row of result) {
       const item = await this.getToolkitItem(row.toolkitItemId);
       entries.push({
         id: row.id,
+        epochId: row.epochId,
         toolkitItemId: row.toolkitItemId,
         toolkitItemName: item?.name,
         templateId: row.templateId || undefined,
@@ -485,9 +514,12 @@ export class DatabaseStorage implements IStorage {
     return entries;
   }
 
-  async upsertToolkitUsage(toolkitItemId: string, templateId?: string): Promise<ToolkitLeaderboardEntry> {
+  async upsertToolkitUsage(toolkitItemId: string, epochId: string, templateId?: string): Promise<ToolkitLeaderboardEntry> {
     const existing = await db.select().from(toolkitLeaderboard)
-      .where(eq(toolkitLeaderboard.toolkitItemId, toolkitItemId));
+      .where(and(
+        eq(toolkitLeaderboard.epochId, epochId),
+        eq(toolkitLeaderboard.toolkitItemId, toolkitItemId)
+      ));
     
     if (existing[0]) {
       const result = await db.update(toolkitLeaderboard)
@@ -500,6 +532,7 @@ export class DatabaseStorage implements IStorage {
       const item = await this.getToolkitItem(toolkitItemId);
       return {
         id: result[0].id,
+        epochId: result[0].epochId,
         toolkitItemId: result[0].toolkitItemId,
         toolkitItemName: item?.name,
         templateId: result[0].templateId || undefined,
@@ -511,6 +544,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const result = await db.insert(toolkitLeaderboard).values({
       id,
+      epochId,
       toolkitItemId,
       templateId: templateId || null,
       usageCount: 1,
@@ -518,6 +552,7 @@ export class DatabaseStorage implements IStorage {
     const item = await this.getToolkitItem(toolkitItemId);
     return {
       id: result[0].id,
+      epochId: result[0].epochId,
       toolkitItemId: result[0].toolkitItemId,
       toolkitItemName: item?.name,
       templateId: result[0].templateId || undefined,
@@ -563,6 +598,7 @@ export class DatabaseStorage implements IStorage {
     const item = await this.getToolkitItem(toolkitItemId);
     return {
       id: result[0].id,
+      epochId: result[0].epochId,
       toolkitItemId: result[0].toolkitItemId,
       toolkitItemName: item?.name,
       templateId: result[0].templateId || undefined,
@@ -574,6 +610,50 @@ export class DatabaseStorage implements IStorage {
       avgPopulation50yr: result[0].avgPopulation50yr || undefined,
       lastUsed: result[0].lastUsed.toISOString(),
     };
+  }
+
+  // Epoch methods
+  async getEpochs(): Promise<Epoch[]> {
+    const result = await db.select().from(epochs).orderBy(desc(epochs.epochNumber));
+    return result.map(dbEpochToEpoch);
+  }
+
+  async getActiveEpoch(): Promise<Epoch> {
+    const result = await db.select().from(epochs).where(eq(epochs.isActive, 1));
+    if (result[0]) {
+      return dbEpochToEpoch(result[0]);
+    }
+    // Create initial epoch if none exists
+    return this.createEpoch("Epoch 1");
+  }
+
+  async createEpoch(name: string): Promise<Epoch> {
+    // Get the highest epoch number
+    const existing = await db.select().from(epochs).orderBy(desc(epochs.epochNumber));
+    const nextNumber = existing.length > 0 ? existing[0].epochNumber + 1 : 1;
+    
+    const id = randomUUID();
+    const result = await db.insert(epochs).values({
+      id,
+      name,
+      epochNumber: nextNumber,
+      isActive: 1,
+    }).returning();
+    return dbEpochToEpoch(result[0]);
+  }
+
+  async archiveCurrentEpoch(): Promise<Epoch> {
+    // Find and archive current active epoch
+    const current = await db.select().from(epochs).where(eq(epochs.isActive, 1));
+    if (current[0]) {
+      await db.update(epochs)
+        .set({ isActive: 0, endedAt: new Date() })
+        .where(eq(epochs.id, current[0].id));
+    }
+    
+    // Create new epoch
+    const epochNumber = current[0] ? current[0].epochNumber + 1 : 2;
+    return this.createEpoch(`Epoch ${epochNumber}`);
   }
 }
 
