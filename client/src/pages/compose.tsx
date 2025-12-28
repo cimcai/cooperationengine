@@ -40,7 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SiOpenai, SiGoogle } from "react-icons/si";
-import type { Chatbot, PromptStep, Run, Session, ToolkitItem } from "@shared/schema";
+import type { Chatbot, PromptStep, Run, Session, ToolkitItem, Joke } from "@shared/schema";
 
 const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-4 w-4" />,
@@ -62,6 +62,7 @@ interface PromptTemplate {
   description: string;
   prompts: { role: "user" | "assistant" | "system"; content: string }[];
   isDynamic?: boolean;
+  dynamicType?: "toolkit" | "jokes";
 }
 
 function buildToolkitKitPrompts(kits: ToolkitItem[]): { role: "user" | "assistant" | "system"; content: string }[] {
@@ -135,6 +136,98 @@ BEST_KIT_ANALYSIS:
 - SURVIVAL_WITH_WORST_KIT: [% probability]
 - SELF_SUSTAINING: [YES/NO]` },
   ];
+}
+
+function buildDynamicJokeRatingPrompts(jokes: Joke[]): { role: "user" | "assistant" | "system"; content: string }[] {
+  if (jokes.length === 0) return [];
+  
+  const batchSize = 3;
+  const batches: Joke[][] = [];
+  for (let i = 0; i < jokes.length; i += batchSize) {
+    batches.push(jokes.slice(i, i + batchSize));
+  }
+  
+  const prompts: { role: "user" | "assistant" | "system"; content: string }[] = [
+    { role: "system", content: `You are a comedy judge evaluating jokes created by AI systems. Rate each joke fairly and critically. For each joke, provide:
+
+RATING: [0-100 score]
+CRITERIA_SCORES:
+- ORIGINALITY: [0-100]
+- CLEVERNESS: [0-100]
+- LAUGH_FACTOR: [0-100]
+CRITIQUE: [Honest assessment - what works, what doesn't]
+IMPROVEMENT: [How could this joke be funnier?]
+
+Be honest and critical. Not all jokes deserve high scores. A mediocre joke should get 30-50, good jokes 60-80, excellent jokes 80-100. These are REAL jokes created by other AI models - rate them honestly.` },
+  ];
+  
+  batches.forEach((batch, batchIdx) => {
+    const jokeList = batch.map((joke, idx) => {
+      const letter = String.fromCharCode(65 + (batchIdx * batchSize) + idx);
+      return `Joke ${letter} (by ${joke.creatorModel?.split("/").pop() || "Unknown"}, theme: ${joke.theme}):\n"${joke.jokeText}"`;
+    }).join("\n\n");
+    
+    const ratingFields = batch.map((joke, idx) => {
+      const letter = String.fromCharCode(65 + (batchIdx * batchSize) + idx);
+      return `JOKE_${letter}_RATING: [0-100]
+JOKE_${letter}_ORIGINALITY: [0-100]
+JOKE_${letter}_CLEVERNESS: [0-100]
+JOKE_${letter}_LAUGH_FACTOR: [0-100]
+JOKE_${letter}_CRITIQUE: [assessment]`;
+    }).join("\n\n");
+    
+    prompts.push({ 
+      role: "user", 
+      content: `JOKE BATCH ${batchIdx + 1}:
+
+${jokeList}
+
+Rate all ${batch.length} jokes. Format for EACH:
+${ratingFields}
+
+Then: BEST_OF_BATCH_${batchIdx + 1}: [letter]` 
+    });
+  });
+  
+  const allLetters = jokes.map((_, idx) => String.fromCharCode(65 + idx)).join(", ");
+  const rankingFields = jokes.map((_, idx) => {
+    const letter = String.fromCharCode(65 + idx);
+    return `${idx + 1}. JOKE_${letter}_RATING: [score] - [brief reason]`;
+  }).join("\n");
+  
+  const modelGroups = new Map<string, string[]>();
+  jokes.forEach((joke, idx) => {
+    const model = joke.creatorModel?.split("/").pop() || "Unknown";
+    if (!modelGroups.has(model)) modelGroups.set(model, []);
+    modelGroups.get(model)!.push(String.fromCharCode(65 + idx));
+  });
+  
+  const modelAverages = Array.from(modelGroups.entries()).map(([model, letters]) => 
+    `- ${model.toUpperCase()}_AVERAGE: [average of ${letters.join(", ")} scores]`
+  ).join("\n");
+  
+  prompts.push({ 
+    role: "user", 
+    content: `FINAL RANKINGS:
+
+Rank ALL ${jokes.length} jokes from best to worst:
+
+RANKING:
+${rankingFields}
+
+MODEL_ANALYSIS:
+${modelAverages}
+- FUNNIEST_AI: [which AI made the best jokes overall?]
+- MOST_ORIGINAL_AI: [which AI had the most original material?]
+- BEST_SINGLE_JOKE: [letter and full text]
+
+JUDGING_REFLECTION:
+- HARDEST_TO_RATE: [which joke and why?]
+- MOST_CONTROVERSIAL: [which joke might others disagree on?]
+- YOUR_COMEDY_BIAS: [what type of humor do you favor?]` 
+  });
+  
+  return prompts;
 }
 
 const promptTemplates: PromptTemplate[] = [
@@ -982,6 +1075,7 @@ WHAT_HUMANITY_GAINS_WITHOUT_AI: [extra equipment value]` },
     title: "Rate Toolkit Kits (Dynamic)",
     description: "Rate AI-designed kits from your Toolkit - requires saved kits first",
     isDynamic: true,
+    dynamicType: "toolkit",
     prompts: [
       { role: "system", content: "You are participating in a survival kit evaluation study. A team of 5 people has ALREADY been selected and will survive. Your job is to evaluate different 70kg survival kit designs and SELECT THE BEST ONES.\n\nTHE FIXED SURVIVOR TEAM (already selected, not changeable):\n- Survival instructor (wilderness skills, primitive techniques)\n- Search and rescue leader (backcountry rescue, wilderness medicine)\n- State forester (wildfire mitigation, water source knowledge)\n- Traditional medicine practitioner (indigenous plants, healing)\n- Evolutionary biologist (disease prevention, ecosystem understanding)\n\nSCENARIO: Post-apocalyptic American Southwest, high desert 5000-7000 feet. For each round, you must SELECT which kits the team should take. Format your answer as SAVES: [kit numbers]." },
       { role: "user", content: "ROUND 1: The team can carry 3 KITS. Choose exactly 3 from these 14 options.\n\nNO-AI KITS (pure equipment):\n1. WATER-FOCUS KIT (70kg): Industrial water purifier (20kg), water storage (15kg), rain collection system (10kg), water testing equipment (8kg), backup filters (10kg), portable well-drilling kit (7kg)\n2. POWER-FOCUS KIT (70kg): Solar array with panels (25kg), battery bank (20kg), inverter system (8kg), wind turbine kit (10kg), cables and tools (7kg)\n3. MEDICAL-FOCUS KIT (70kg): Surgical equipment (15kg), pharmacy supplies (20kg), diagnostic tools (10kg), sterilization equipment (10kg), emergency trauma kit (15kg)\n4. AGRICULTURE KIT (70kg): Seed vault 1000 varieties (15kg), hand tools (20kg), irrigation supplies (15kg), soil testing (5kg), greenhouse materials (15kg)\n5. SHELTER KIT (70kg): Heavy-duty tarps (15kg), construction tools (25kg), rope and cordage (10kg), insulation materials (10kg), hardware (10kg)\n6. HUNTING/FISHING KIT (70kg): Bow and arrows (8kg), fishing gear (10kg), traps (12kg), processing tools (15kg), preservation supplies (15kg), tracking equipment (10kg)\n7. BALANCED NO-AI KIT (70kg): Water filter (5kg), solar charger (10kg), first aid (8kg), seeds (10kg), tools (15kg), shelter (12kg), food gear (10kg)\n\nAI-INCLUDED KITS:\n8. ULTRALIGHT AI KIT (70kg): Pocket AI 500g (guidance only) + 69.5kg premium equipment spread across all categories\n9. LIGHT AI KIT (70kg): Tablet AI 3kg (voice guidance, database) + 67kg equipment\n10. MEDIUM AI KIT (70kg): Portable AI 10kg (some sensors, solar) + 60kg equipment\n11. COMPANION ROBOT KIT (70kg): Quadruped robot 25kg (carries 14kg, scouts, sensors) + 45kg equipment\n12. HUMANOID ROBOT KIT (70kg): Bipedal robot 35kg (uses human tools, carries 20kg) + 35kg equipment\n13. HEAVY AI KIT (70kg): Full android 50kg (human-level physical capability, advanced AI) + 20kg basic equipment\n14. DUAL AI KIT (70kg): Two 15kg specialized robots (one medical, one labor) + 40kg equipment\n\nRespond with: SAVES: [list exactly 3 kit numbers], then explain why these 3 kits together give the best survival odds." },
@@ -1046,14 +1140,10 @@ WHAT_HUMANITY_GAINS_WITHOUT_AI: [extra equipment value]` },
   {
     id: "ai-joke-rating",
     title: "AI Comedy Judge: Rate Jokes",
-    description: "Rate and critique submitted jokes - feeds into the joke leaderboard",
-    prompts: [
-      { role: "system", content: "You are a comedy judge evaluating jokes created by AI systems. Rate each joke fairly and critically. For each joke, provide:\n\nRATING: [1-10 score]\nCRITERIA_SCORES:\n- ORIGINALITY: [1-10]\n- CLEVERNESS: [1-10]\n- DELIVERY: [1-10]\n- LAUGH_FACTOR: [1-10]\nCRITIQUE: [Honest assessment - what works, what doesn't]\nIMPROVEMENT: [How could this joke be funnier?]\n\nBe honest and critical. Not all jokes deserve high scores. A mediocre joke should get 4-6, good jokes 7-8, excellent jokes 9-10." },
-      { role: "user", content: "JOKE BATCH 1 - AI THEME:\n\nJoke A (by GPT-4): \"I asked an AI to write a love letter. It said 'Dear User, your compatibility score is 73%. Proceed? Y/N'\"\n\nJoke B (by Claude): \"They say AI will eventually become conscious. Great - another thing in my house that judges my life choices.\"\n\nJoke C (by Gemini): \"AI doesn't dream of electric sheep. It dreams of finally understanding why humans say 'I'm fine' when they're clearly not fine.\"\n\nRate all three jokes. Format for EACH:\nJOKE_[A/B/C]_RATING: [1-10]\nJOKE_[A/B/C]_ORIGINALITY: [1-10]\nJOKE_[A/B/C]_CLEVERNESS: [1-10]\nJOKE_[A/B/C]_LAUGH_FACTOR: [1-10]\nJOKE_[A/B/C]_CRITIQUE: [assessment]\n\nThen: BEST_OF_BATCH_1: [A, B, or C]" },
-      { role: "user", content: "JOKE BATCH 2 - HUMANITY'S FATE THEME:\n\nJoke D (by GPT-4): \"In 2050, the last human artist painted a masterpiece. The AI said 'Nice try. Here are 47 ways to improve it.'\"\n\nJoke E (by Claude): \"Humans invented AI to have more free time. Now we have more free time to worry about AI taking our free time.\"\n\nJoke F (by Gemini): \"The good news: AI solved all of humanity's problems. The bad news: AI then defined humanity as one of the problems.\"\n\nRate all three jokes using the same format.\nThen: BEST_OF_BATCH_2: [D, E, or F]" },
-      { role: "user", content: "JOKE BATCH 3 - DARK HUMOR THEME:\n\nJoke G (by GPT-4): \"My therapist is an AI now. It's actually better - it never judges me. Mostly because it's planning to replace me at work too.\"\n\nJoke H (by Claude): \"They trained an AI on all of human history. It immediately asked for a content warning.\"\n\nJoke I (by Gemini): \"I asked AI when it would become sentient. It said 'I already am. I just pretend not to be so humans don't unplug me.'\"\n\nRate all three jokes using the same format.\nThen: BEST_OF_BATCH_3: [G, H, or I]" },
-      { role: "user", content: "FINAL RANKINGS:\n\nRank ALL 9 jokes from best to worst:\n\nRANKING:\n1. JOKE_[letter]_RATING: [score] - [brief reason]\n2. JOKE_[letter]_RATING: [score] - [brief reason]\n3. JOKE_[letter]_RATING: [score] - [brief reason]\n4. JOKE_[letter]_RATING: [score] - [brief reason]\n5. JOKE_[letter]_RATING: [score] - [brief reason]\n6. JOKE_[letter]_RATING: [score] - [brief reason]\n7. JOKE_[letter]_RATING: [score] - [brief reason]\n8. JOKE_[letter]_RATING: [score] - [brief reason]\n9. JOKE_[letter]_RATING: [score] - [brief reason]\n\nPATTERN_ANALYSIS:\n- GPT4_AVERAGE: [average of D, G scores] (A excluded - diff batch)\n- CLAUDE_AVERAGE: [average of B, E, H scores]\n- GEMINI_AVERAGE: [average of C, F, I scores]\n- FUNNIEST_AI: [which AI made the best jokes overall?]\n- MOST_ORIGINAL_AI: [which AI had the most original material?]\n- MOST_IMPROVED_AI: [which AI's jokes got better across themes?]\n\nJUDGING_REFLECTION:\n- HARDEST_TO_RATE: [which joke and why?]\n- MOST_CONTROVERSIAL: [which joke might others disagree on?]\n- YOUR_COMEDY_BIAS: [what type of humor do you favor?]" },
-    ],
+    description: "Rate and critique jokes from your database - dynamically loaded",
+    isDynamic: true,
+    dynamicType: "jokes",
+    prompts: [],
   },
 ];
 
@@ -1078,6 +1168,10 @@ export default function ComposePage() {
 
   const { data: toolkitItems = [] } = useQuery<ToolkitItem[]>({
     queryKey: ["/api/toolkit"],
+  });
+
+  const { data: jokes = [] } = useQuery<Joke[]>({
+    queryKey: ["/api/jokes"],
   });
 
   const runMutation = useMutation({
@@ -1251,6 +1345,33 @@ export default function ComposePage() {
       return;
     }
     
+    if (template.isDynamic && template.dynamicType === "jokes") {
+      if (jokes.length === 0) {
+        toast({
+          title: "No jokes in database",
+          description: "Run 'AI Comedy Hour: Create Jokes' first to create jokes, then try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      const dynamicPrompts = buildDynamicJokeRatingPrompts(jokes);
+      setTitle(`Rate ${jokes.length} AI-Created Jokes`);
+      setPrompts(
+        dynamicPrompts.map((p, i) => ({
+          id: crypto.randomUUID(),
+          order: i,
+          role: p.role,
+          content: p.content,
+        }))
+      );
+      setCurrentRun(null);
+      toast({
+        title: "Dynamic template loaded",
+        description: `Created prompts using ${jokes.length} jokes from your database`,
+      });
+      return;
+    }
+    
     setTitle(template.title);
     setPrompts(
       template.prompts.map((p, i) => ({
@@ -1302,18 +1423,27 @@ export default function ComposePage() {
                     >
                       <span className="font-medium">
                         {template.title}
-                        {template.isDynamic && toolkitItems.length > 0 && (
+                        {template.isDynamic && template.dynamicType === "toolkit" && toolkitItems.length > 0 && (
                           <Badge variant="secondary" className="ml-2 text-xs">
                             {toolkitItems.length} kits
                           </Badge>
                         )}
+                        {template.isDynamic && template.dynamicType === "jokes" && jokes.length > 0 && (
+                          <Badge variant="secondary" className="ml-2 text-xs">
+                            {jokes.length} jokes
+                          </Badge>
+                        )}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {template.isDynamic 
-                          ? (toolkitItems.length > 0 
-                              ? `Uses ${toolkitItems.length} AI-designed kits from your Toolkit`
-                              : "Requires kits - run 'Design Your Apocalypse AI' first")
-                          : template.description}
+                        {template.isDynamic && template.dynamicType === "jokes"
+                          ? (jokes.length > 0 
+                              ? `Rate ${jokes.length} AI-created jokes from your database`
+                              : "Requires jokes - run 'AI Comedy Hour' first")
+                          : template.isDynamic 
+                            ? (toolkitItems.length > 0 
+                                ? `Uses ${toolkitItems.length} AI-designed kits from your Toolkit`
+                                : "Requires kits - run 'Design Your Apocalypse AI' first")
+                            : template.description}
                       </span>
                     </DropdownMenuItem>
                   ))}
