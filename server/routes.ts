@@ -929,6 +929,92 @@ export async function registerRoutes(
     }
   });
 
+  // Joke Leaderboard routes
+  app.get("/api/jokes", async (req, res) => {
+    try {
+      const epochId = req.query.epochId as string | undefined;
+      const jokes = await storage.getJokes(epochId);
+      res.json(jokes);
+    } catch (error) {
+      console.error("Error fetching jokes:", error);
+      res.status(500).json({ error: "Failed to fetch jokes" });
+    }
+  });
+
+  app.get("/api/jokes/:id", async (req, res) => {
+    try {
+      const joke = await storage.getJoke(req.params.id);
+      if (!joke) {
+        return res.status(404).json({ error: "Joke not found" });
+      }
+      res.json(joke);
+    } catch (error) {
+      console.error("Error fetching joke:", error);
+      res.status(500).json({ error: "Failed to fetch joke" });
+    }
+  });
+
+  app.post("/api/jokes", async (req, res) => {
+    try {
+      const { jokeText, jokeType, theme, creatorModel, selfRating, runId } = req.body;
+      
+      if (!jokeText || !jokeType || !theme || !creatorModel) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const activeEpoch = await storage.getActiveEpoch();
+      const joke = await storage.createJoke(activeEpoch.id, {
+        jokeText,
+        jokeType,
+        theme,
+        creatorModel,
+        selfRating,
+        runId,
+      });
+      res.json(joke);
+    } catch (error) {
+      console.error("Error creating joke:", error);
+      res.status(500).json({ error: "Failed to create joke" });
+    }
+  });
+
+  app.get("/api/jokes/:id/ratings", async (req, res) => {
+    try {
+      const ratings = await storage.getJokeRatings(req.params.id);
+      res.json(ratings);
+    } catch (error) {
+      console.error("Error fetching joke ratings:", error);
+      res.status(500).json({ error: "Failed to fetch joke ratings" });
+    }
+  });
+
+  app.post("/api/jokes/:id/ratings", async (req, res) => {
+    try {
+      const { raterModel, rating, originality, cleverness, laughFactor, critique, runId } = req.body;
+      
+      if (!raterModel || rating === undefined) {
+        return res.status(400).json({ error: "Missing raterModel or rating" });
+      }
+
+      const activeEpoch = await storage.getActiveEpoch();
+      const jokeRating = await storage.createJokeRating({
+        jokeId: req.params.id,
+        raterModel,
+        rating,
+        originality,
+        cleverness,
+        laughFactor,
+        critique,
+        runId,
+        epochId: activeEpoch.id,
+      });
+      res.json(jokeRating);
+    } catch (error) {
+      console.error("Error creating joke rating:", error);
+      res.status(500).json({ error: "Failed to create joke rating" });
+    }
+  });
+
   return httpServer;
 }
 
