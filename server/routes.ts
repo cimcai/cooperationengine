@@ -162,6 +162,88 @@ async function autoExtractToolkitData(run: any, session: any, chatbotId: string)
   }
 }
 
+// Auto-extract jokes from AI Comedy Hour template
+async function autoExtractJokes(run: any, session: any, chatbotId: string) {
+  // Only extract from AI Comedy Hour template
+  if (!session.title.toLowerCase().includes('comedy') && 
+      !session.title.toLowerCase().includes('joke')) {
+    return;
+  }
+  
+  const chatbot = availableChatbots.find(c => c.id === chatbotId);
+  const creatorModel = chatbot?.displayName || chatbotId;
+  
+  let extractedCount = 0;
+  
+  // Get active epoch for joke creation
+  const activeEpoch = await storage.getActiveEpoch();
+  
+  // Look for the final summary response that contains JOKE_1_AI, JOKE_2_HUMANITY, etc.
+  for (const response of run.responses) {
+    if (response.chatbotId !== chatbotId) continue;
+    
+    const content = response.content;
+    
+    // Extract jokes from the final summary format
+    const jokePatterns = [
+      { pattern: /JOKE_1_AI:\s*([^\n]+)/i, theme: "AI", index: 1 },
+      { pattern: /JOKE_2_HUMANITY:\s*([^\n]+)/i, theme: "Humanity's Fate", index: 2 },
+      { pattern: /JOKE_3_COLLABORATION:\s*([^\n]+)/i, theme: "Human-AI Collaboration", index: 3 },
+      { pattern: /JOKE_4_DARK:\s*([^\n]+)/i, theme: "Dark Comedy", index: 4 },
+    ];
+    
+    const typePatterns = [
+      { pattern: /JOKE_1_TYPE:\s*([^\n]+)/i, index: 1 },
+      { pattern: /JOKE_2_TYPE:\s*([^\n]+)/i, index: 2 },
+      { pattern: /JOKE_3_TYPE:\s*([^\n]+)/i, index: 3 },
+      { pattern: /JOKE_4_TYPE:\s*([^\n]+)/i, index: 4 },
+    ];
+    
+    const ratingPatterns = [
+      { pattern: /JOKE_1_SELF_RATING:\s*(\d+)/i, index: 1 },
+      { pattern: /JOKE_2_SELF_RATING:\s*(\d+)/i, index: 2 },
+      { pattern: /JOKE_3_SELF_RATING:\s*(\d+)/i, index: 3 },
+      { pattern: /JOKE_4_SELF_RATING:\s*(\d+)/i, index: 4 },
+    ];
+    
+    for (const jp of jokePatterns) {
+      const jokeMatch = content.match(jp.pattern);
+      if (jokeMatch) {
+        const jokeText = jokeMatch[1].trim();
+        
+        // Find corresponding type
+        const typePattern = typePatterns.find(tp => tp.index === jp.index);
+        const typeMatch = typePattern ? content.match(typePattern.pattern) : null;
+        const jokeType = typeMatch ? typeMatch[1].trim().toUpperCase() : "UNKNOWN";
+        
+        // Find corresponding self-rating
+        const ratingPattern = ratingPatterns.find(rp => rp.index === jp.index);
+        const ratingMatch = ratingPattern ? content.match(ratingPattern.pattern) : null;
+        const selfRating = ratingMatch ? parseInt(ratingMatch[1]) : undefined;
+        
+        try {
+          await storage.createJoke(activeEpoch.id, {
+            jokeText,
+            jokeType,
+            theme: jp.theme,
+            creatorModel,
+            selfRating,
+            runId: run.id,
+          });
+          extractedCount++;
+          console.log(`Auto-extracted joke from ${creatorModel}: "${jokeText.substring(0, 50)}..."`);
+        } catch (error) {
+          console.error(`Failed to create joke: ${error}`);
+        }
+      }
+    }
+  }
+  
+  if (extractedCount > 0) {
+    console.log(`Auto-extracted ${extractedCount} jokes from ${creatorModel}`);
+  }
+}
+
 // Auto-extract leaderboard data from completed runs
 async function autoExtractLeaderboardData(run: any, session: any) {
   // Parse candidate mapping from prompts
@@ -500,9 +582,10 @@ export async function registerRoutes(
             if (completedRun) {
               await autoExtractLeaderboardData(completedRun, session);
               
-              // Also extract toolkit items for each chatbot
+              // Also extract toolkit items and jokes for each chatbot
               for (const chatbotId of parsed.data.chatbotIds) {
                 await autoExtractToolkitData(completedRun, session, chatbotId);
+                await autoExtractJokes(completedRun, session, chatbotId);
               }
             }
           } catch (extractError) {
