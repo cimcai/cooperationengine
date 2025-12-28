@@ -23,10 +23,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function LeaderboardPage() {
   const { toast } = useToast();
   const [selectedEpochId, setSelectedEpochId] = useState<string | undefined>(undefined);
+  const [selectedJoke, setSelectedJoke] = useState<Joke | null>(null);
 
   const { data: epochs, isLoading: loadingEpochs } = useQuery<Epoch[]>({
     queryKey: ["/api/epochs"],
@@ -658,8 +665,13 @@ export default function LeaderboardPage() {
                                 </Badge>
                               </div>
                               
-                              <p className="text-sm mb-3 italic text-muted-foreground" data-testid={`text-joke-text-${joke.id}`}>
+                              <p 
+                                className="text-sm mb-3 italic text-muted-foreground cursor-pointer hover:text-foreground transition-colors" 
+                                data-testid={`text-joke-text-${joke.id}`}
+                                onClick={() => setSelectedJoke(joke)}
+                              >
                                 "{joke.jokeText.length > 200 ? joke.jokeText.slice(0, 200) + "..." : joke.jokeText}"
+                                {joke.jokeText.length > 200 && <span className="text-xs ml-1 text-primary">(click to read more)</span>}
                               </p>
                               
                               <div className="flex items-center gap-1 mb-2">
@@ -711,6 +723,32 @@ export default function LeaderboardPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={!!selectedJoke} onOpenChange={(open) => !open && setSelectedJoke(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5" />
+              {selectedJoke?.creatorModel?.split("/").pop() || "Unknown AI"} - {selectedJoke?.theme}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-lg italic leading-relaxed">
+              "{selectedJoke?.jokeText}"
+            </p>
+            {selectedJoke && (
+              <div className="flex items-center gap-4 pt-4 border-t flex-wrap">
+                <Badge variant="outline">{selectedJoke.jokeType}</Badge>
+                <div className="flex items-center gap-1">
+                  <Star className="h-4 w-4 text-yellow-500" />
+                  <span className="font-semibold">{selectedJoke.avgRating || "-"}/100</span>
+                  <span className="text-muted-foreground text-sm">({selectedJoke.ratingCount} ratings)</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </ScrollArea>
   );
 }
