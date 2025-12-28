@@ -1228,6 +1228,8 @@ export default function ComposePage() {
       } else if (result.batch) {
         setShowBatchStats(true);
         queryClient.invalidateQueries({ queryKey: ["/api/history"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/jokes"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/toolkit"] });
         toast({
           title: "Batch complete",
           description: `Completed ${result.batch.length} runs. View statistics below.`,
@@ -1270,6 +1272,8 @@ export default function ComposePage() {
           setTimeout(poll, 1000);
         } else {
           queryClient.invalidateQueries({ queryKey: ["/api/history"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/jokes"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/toolkit"] });
         }
       } catch (error) {
         console.error("Polling error:", error);
