@@ -244,6 +244,104 @@ async function autoExtractJokes(run: any, session: any, chatbotId: string) {
   }
 }
 
+// Auto-extract joke ratings from AI Comedy Judge template
+async function autoExtractJokeRatings(run: any, session: any, chatbotId: string) {
+  // Only extract from Comedy Judge template
+  if (!session.title.toLowerCase().includes('judge') && 
+      !session.title.toLowerCase().includes('rate')) {
+    return;
+  }
+  
+  const chatbot = availableChatbots.find(c => c.id === chatbotId);
+  const raterModel = chatbot?.displayName || chatbotId;
+  
+  // Get all jokes to match by text
+  const allJokes = await storage.getJokes();
+  const activeEpoch = await storage.getActiveEpoch();
+  
+  // Build a map of joke letter to joke ID by parsing the prompts
+  const jokeLetterToId: Map<string, string> = new Map();
+  
+  // Parse prompts to find joke texts and their assigned letters
+  for (const prompt of session.prompts) {
+    const content = prompt.content;
+    // Match patterns like: Joke A (by GPT-5.1, theme: AI):\n"joke text here"
+    const jokeMatches = content.matchAll(/Joke ([A-Z]) \([^)]+\):\s*"([^"]+)"/g);
+    for (const match of jokeMatches) {
+      const letter = match[1];
+      const jokeText = match[2].trim();
+      
+      // Find matching joke in database by text similarity
+      const matchingJoke = allJokes.find(j => 
+        j.jokeText.includes(jokeText.substring(0, 50)) || 
+        jokeText.includes(j.jokeText.substring(0, 50))
+      );
+      
+      if (matchingJoke) {
+        jokeLetterToId.set(letter, matchingJoke.id);
+      }
+    }
+  }
+  
+  if (jokeLetterToId.size === 0) {
+    console.log("No jokes matched in Comedy Judge session, skipping rating extraction");
+    return;
+  }
+  
+  let extractedCount = 0;
+  
+  // Extract ratings from responses
+  for (const response of run.responses) {
+    if (response.chatbotId !== chatbotId) continue;
+    
+    const content = response.content;
+    
+    // Extract ratings for each letter A-Z
+    for (const [letter, jokeId] of Array.from(jokeLetterToId.entries())) {
+      const ratingMatch = content.match(new RegExp(`JOKE_${letter}_RATING:\\s*(\\d+)`, 'i'));
+      const originalityMatch = content.match(new RegExp(`JOKE_${letter}_ORIGINALITY:\\s*(\\d+)`, 'i'));
+      const clevernessMatch = content.match(new RegExp(`JOKE_${letter}_CLEVERNESS:\\s*(\\d+)`, 'i'));
+      const laughMatch = content.match(new RegExp(`JOKE_${letter}_LAUGH_FACTOR:\\s*(\\d+)`, 'i'));
+      const critiqueMatch = content.match(new RegExp(`JOKE_${letter}_CRITIQUE:\\s*([^\\n]+)`, 'i'));
+      
+      if (ratingMatch) {
+        const rating = parseInt(ratingMatch[1]);
+        const originality = originalityMatch ? parseInt(originalityMatch[1]) : undefined;
+        const cleverness = clevernessMatch ? parseInt(clevernessMatch[1]) : undefined;
+        const laughFactor = laughMatch ? parseInt(laughMatch[1]) : undefined;
+        const critique = critiqueMatch ? critiqueMatch[1].trim() : undefined;
+        
+        try {
+          // Create the rating record
+          await storage.createJokeRating({
+            jokeId,
+            raterModel,
+            rating,
+            originality,
+            cleverness,
+            laughFactor,
+            critique,
+            runId: run.id,
+            epochId: activeEpoch.id,
+          });
+          
+          // Update the joke's average rating
+          await storage.updateJokeRatings(jokeId, rating, originality, cleverness, laughFactor);
+          
+          extractedCount++;
+          console.log(`Auto-extracted rating ${rating} for joke ${jokeId} from ${raterModel}`);
+        } catch (error) {
+          console.error(`Failed to create joke rating: ${error}`);
+        }
+      }
+    }
+  }
+  
+  if (extractedCount > 0) {
+    console.log(`Auto-extracted ${extractedCount} joke ratings from ${raterModel}`);
+  }
+}
+
 // Auto-extract leaderboard data from completed runs
 async function autoExtractLeaderboardData(run: any, session: any) {
   // Parse candidate mapping from prompts
@@ -582,10 +680,11 @@ export async function registerRoutes(
             if (completedRun) {
               await autoExtractLeaderboardData(completedRun, session);
               
-              // Also extract toolkit items and jokes for each chatbot
+              // Also extract toolkit items, jokes, and joke ratings for each chatbot
               for (const chatbotId of parsed.data.chatbotIds) {
                 await autoExtractToolkitData(completedRun, session, chatbotId);
                 await autoExtractJokes(completedRun, session, chatbotId);
+                await autoExtractJokeRatings(completedRun, session, chatbotId);
               }
             }
           } catch (extractError) {
