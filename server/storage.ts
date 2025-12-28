@@ -1,7 +1,7 @@
 import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 
 // Available chatbots configuration
 export const availableChatbots: Chatbot[] = [
@@ -699,11 +699,12 @@ export class DatabaseStorage implements IStorage {
 
   // Joke methods
   async getJokes(epochId?: string): Promise<Joke[]> {
+    // Sort by rating descending, with unrated jokes (NULL) at the bottom
     if (epochId) {
-      const result = await db.select().from(jokes).where(eq(jokes.epochId, epochId)).orderBy(desc(jokes.avgRating));
+      const result = await db.select().from(jokes).where(eq(jokes.epochId, epochId)).orderBy(sql`${jokes.avgRating} DESC NULLS LAST`);
       return result.map(dbJokeToJoke);
     }
-    const result = await db.select().from(jokes).orderBy(desc(jokes.avgRating));
+    const result = await db.select().from(jokes).orderBy(sql`${jokes.avgRating} DESC NULLS LAST`);
     return result.map(dbJokeToJoke);
   }
 
