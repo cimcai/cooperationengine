@@ -189,42 +189,14 @@ Then: BEST_OF_BATCH_${batchIdx + 1}: [letter]`
     });
   });
   
-  const allLetters = jokes.map((_, idx) => String.fromCharCode(65 + idx)).join(", ");
-  const rankingFields = jokes.map((_, idx) => {
-    const letter = String.fromCharCode(65 + idx);
-    return `${idx + 1}. JOKE_${letter}_RATING: [score] - [brief reason]`;
-  }).join("\n");
-  
-  const modelGroups = new Map<string, string[]>();
-  jokes.forEach((joke, idx) => {
-    const model = joke.creatorModel?.split("/").pop() || "Unknown";
-    if (!modelGroups.has(model)) modelGroups.set(model, []);
-    modelGroups.get(model)!.push(String.fromCharCode(65 + idx));
-  });
-  
-  const modelAverages = Array.from(modelGroups.entries()).map(([model, letters]) => 
-    `- ${model.toUpperCase()}_AVERAGE: [average of ${letters.join(", ")} scores]`
-  ).join("\n");
-  
   prompts.push({ 
     role: "user", 
-    content: `FINAL RANKINGS:
+    content: `FINAL SUMMARY (don't repeat scores - just give quick picks):
 
-Rank ALL ${jokes.length} jokes from best to worst:
-
-RANKING:
-${rankingFields}
-
-MODEL_ANALYSIS:
-${modelAverages}
-- FUNNIEST_AI: [which AI made the best jokes overall?]
-- MOST_ORIGINAL_AI: [which AI had the most original material?]
-- BEST_SINGLE_JOKE: [letter and full text]
-
-JUDGING_REFLECTION:
-- HARDEST_TO_RATE: [which joke and why?]
-- MOST_CONTROVERSIAL: [which joke might others disagree on?]
-- YOUR_COMEDY_BIAS: [what type of humor do you favor?]` 
+TOP_3: [letters of your 3 favorites, best first]
+WORST: [letter of weakest joke]
+FUNNIEST_AI: [which AI model was funniest overall?]
+YOUR_COMEDY_BIAS: [one sentence on what humor style you prefer]` 
   });
   
   return prompts;
