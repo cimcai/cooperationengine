@@ -8,10 +8,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trophy, Users, Droplets, Apple, Clock, TrendingUp, Trash2, AlertCircle, Wrench, Zap, Archive, CalendarClock } from "lucide-react";
+import { Trophy, Users, Droplets, Apple, Clock, TrendingUp, Trash2, AlertCircle, Wrench, Zap, Archive, CalendarClock, Laugh, Star, Lightbulb, Sparkles, Bot } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { LeaderboardEntry, ToolkitLeaderboardEntry, ToolkitItem, Epoch } from "@shared/schema";
+import type { LeaderboardEntry, ToolkitLeaderboardEntry, ToolkitItem, Epoch, Joke } from "@shared/schema";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,6 +62,17 @@ export default function LeaderboardPage() {
 
   const { data: toolkitItems } = useQuery<ToolkitItem[]>({
     queryKey: ["/api/toolkit"],
+  });
+
+  const { data: jokes, isLoading: loadingJokes } = useQuery<Joke[]>({
+    queryKey: ["/api/jokes", effectiveEpochId],
+    queryFn: async () => {
+      const url = effectiveEpochId ? `/api/jokes?epochId=${effectiveEpochId}` : "/api/jokes";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch jokes");
+      return res.json();
+    },
+    enabled: !!effectiveEpochId || !loadingEpochs,
   });
 
   const archiveEpochMutation = useMutation({
@@ -125,8 +136,9 @@ export default function LeaderboardPage() {
   const maxSelections = entries?.reduce((max, e) => Math.max(max, e.selectionCount), 0) || 1;
   const totalToolkitUsage = toolkitEntries?.reduce((sum, e) => sum + e.usageCount, 0) || 0;
   const maxToolkitUsage = toolkitEntries?.reduce((max, e) => Math.max(max, e.usageCount), 0) || 1;
+  const maxJokeRating = jokes?.reduce((max, j) => Math.max(max, j.avgRating || 0), 0) || 100;
 
-  const isLoading = loadingCandidates || loadingToolkit || loadingEpochs;
+  const isLoading = loadingCandidates || loadingToolkit || loadingEpochs || loadingJokes;
   const selectedEpoch = epochs?.find(e => e.id === effectiveEpochId);
   const isViewingActiveEpoch = selectedEpoch?.isActive ?? true;
 
@@ -158,7 +170,8 @@ export default function LeaderboardPage() {
 
   const hasCandidateData = entries && entries.length > 0;
   const hasToolkitData = toolkitEntries && toolkitEntries.length > 0;
-  const hasAnyData = hasCandidateData || hasToolkitData;
+  const hasJokeData = jokes && jokes.length > 0;
+  const hasAnyData = hasCandidateData || hasToolkitData || hasJokeData;
 
   return (
     <ScrollArea className="h-full">
@@ -283,6 +296,10 @@ export default function LeaderboardPage() {
             <TabsTrigger value="candidates" data-testid="tab-candidates">
               <Users className="h-4 w-4 mr-2" />
               Candidates
+            </TabsTrigger>
+            <TabsTrigger value="jokes" data-testid="tab-jokes">
+              <Laugh className="h-4 w-4 mr-2" />
+              AI Comedy
             </TabsTrigger>
           </TabsList>
 
@@ -560,6 +577,130 @@ export default function LeaderboardPage() {
                               )}
                             </div>
                           )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="jokes" className="space-y-6">
+            {!hasJokeData ? (
+              <Card className="border-dashed">
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <Laugh className="h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-medium mb-2">No Jokes Yet</h3>
+                  <p className="text-muted-foreground text-center max-w-md">
+                    Run AI Comedy Hour experiments to see which AI models create the funniest jokes and how they rate each other's humor.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>Total Jokes</CardDescription>
+                      <CardTitle className="text-3xl" data-testid="text-total-jokes">
+                        {jokes?.length || 0}
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>Total Ratings</CardDescription>
+                      <CardTitle className="text-3xl" data-testid="text-total-ratings">
+                        {jokes?.reduce((sum, j) => sum + j.ratingCount, 0) || 0}
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>Top Rated</CardDescription>
+                      <CardTitle className="text-3xl" data-testid="text-top-rated">
+                        {jokes?.[0]?.avgRating || 0}/100
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardDescription>Top Comedian</CardDescription>
+                      <CardTitle className="text-xl truncate" data-testid="text-top-comedian">
+                        {jokes?.[0]?.creatorModel?.split("/").pop() || "-"}
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-semibold mb-4">AI Comedy Leaderboard</h2>
+                  <div className="space-y-4">
+                    {jokes?.map((joke, index) => (
+                      <Card key={joke.id} data-testid={`card-joke-${joke.id}`}>
+                        <CardContent className="py-4">
+                          <div className="flex items-start gap-4">
+                            <div className="flex items-center justify-center w-10 h-10 shrink-0 rounded-full bg-primary/10 font-bold text-lg">
+                              {index + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                <Bot className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <span className="font-medium text-sm" data-testid={`text-joke-creator-${joke.id}`}>
+                                  {joke.creatorModel?.split("/").pop() || "Unknown"}
+                                </span>
+                                <Badge variant="outline" className="shrink-0">
+                                  {joke.jokeType}
+                                </Badge>
+                                <Badge variant="secondary" className="shrink-0">
+                                  {joke.theme}
+                                </Badge>
+                              </div>
+                              
+                              <p className="text-sm mb-3 italic text-muted-foreground" data-testid={`text-joke-text-${joke.id}`}>
+                                "{joke.jokeText.length > 200 ? joke.jokeText.slice(0, 200) + "..." : joke.jokeText}"
+                              </p>
+                              
+                              <div className="flex items-center gap-1 mb-2">
+                                <Star className="h-4 w-4 text-yellow-500" />
+                                <span className="font-semibold">
+                                  {joke.avgRating || "-"}/100
+                                </span>
+                                <span className="text-muted-foreground text-sm">
+                                  ({joke.ratingCount} {joke.ratingCount === 1 ? "rating" : "ratings"})
+                                </span>
+                              </div>
+                              
+                              <Progress 
+                                value={(joke.avgRating || 0) / maxJokeRating * 100} 
+                                className="h-2"
+                              />
+                              
+                              {(joke.avgOriginality || joke.avgCleverness || joke.avgLaughFactor) && (
+                                <div className="flex items-center gap-4 mt-3 pt-2 border-t flex-wrap">
+                                  {joke.avgOriginality !== undefined && (
+                                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                      <Lightbulb className="h-4 w-4 text-orange-500" />
+                                      <span>Originality: {joke.avgOriginality}/100</span>
+                                    </div>
+                                  )}
+                                  {joke.avgCleverness !== undefined && (
+                                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                      <Sparkles className="h-4 w-4 text-purple-500" />
+                                      <span>Cleverness: {joke.avgCleverness}/100</span>
+                                    </div>
+                                  )}
+                                  {joke.avgLaughFactor !== undefined && (
+                                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                      <Laugh className="h-4 w-4 text-green-500" />
+                                      <span>Laugh Factor: {joke.avgLaughFactor}/100</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </CardContent>
                       </Card>
                     ))}
