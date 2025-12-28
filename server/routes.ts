@@ -209,12 +209,25 @@ async function autoExtractJokes(run: any, session: any, chatbotId: string) {
     for (const jp of jokePatterns) {
       const jokeMatch = content.match(jp.pattern);
       if (jokeMatch) {
-        const jokeText = jokeMatch[1].trim();
+        // Clean up the joke text - remove markdown formatting like ** and quotes
+        let jokeText = jokeMatch[1].trim()
+          .replace(/^\*\*\s*/, '')  // Remove leading **
+          .replace(/\s*\*\*$/, '')  // Remove trailing **
+          .replace(/^["']+/, '')    // Remove leading quotes
+          .replace(/["']+$/, '');   // Remove trailing quotes
+        
+        // Skip invalid jokes (empty, just punctuation, or too short)
+        if (!jokeText || jokeText.length < 10 || /^[\*\s\-_"']+$/.test(jokeText)) {
+          console.log(`Skipping invalid joke text: "${jokeText}"`);
+          continue;
+        }
         
         // Find corresponding type
         const typePattern = typePatterns.find(tp => tp.index === jp.index);
         const typeMatch = typePattern ? content.match(typePattern.pattern) : null;
-        const jokeType = typeMatch ? typeMatch[1].trim().toUpperCase() : "UNKNOWN";
+        let jokeType = typeMatch ? typeMatch[1].trim().toUpperCase() : "UNKNOWN";
+        // Clean up joke type too
+        jokeType = jokeType.replace(/^\*\*\s*/, '').replace(/\s*\*\*$/, '');
         
         // Find corresponding self-rating
         const ratingPattern = ratingPatterns.find(rp => rp.index === jp.index);
