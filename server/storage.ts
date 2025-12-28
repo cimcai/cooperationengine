@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
@@ -127,6 +127,13 @@ export interface IStorage {
   getActiveEpoch(): Promise<Epoch>;
   createEpoch(name: string): Promise<Epoch>;
   archiveCurrentEpoch(): Promise<Epoch>;
+  // Joke methods
+  getJokes(epochId?: string): Promise<Joke[]>;
+  getJoke(id: string): Promise<Joke | undefined>;
+  createJoke(epochId: string, data: InsertJoke): Promise<Joke>;
+  updateJokeRatings(jokeId: string, rating: number, originality?: number, cleverness?: number, laughFactor?: number): Promise<Joke | undefined>;
+  getJokeRatings(jokeId: string): Promise<JokeRating[]>;
+  createJokeRating(data: InsertJokeRating & { epochId: string }): Promise<JokeRating>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -211,6 +218,40 @@ function dbEpochToEpoch(row: typeof epochs.$inferSelect): Epoch {
     isActive: row.isActive === 1,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt?.toISOString(),
+  };
+}
+
+function dbJokeToJoke(row: typeof jokes.$inferSelect): Joke {
+  return {
+    id: row.id,
+    epochId: row.epochId,
+    jokeText: row.jokeText,
+    jokeType: row.jokeType,
+    theme: row.theme,
+    creatorModel: row.creatorModel,
+    selfRating: row.selfRating || undefined,
+    avgRating: row.avgRating || undefined,
+    ratingCount: row.ratingCount,
+    avgOriginality: row.avgOriginality || undefined,
+    avgCleverness: row.avgCleverness || undefined,
+    avgLaughFactor: row.avgLaughFactor || undefined,
+    runId: row.runId || undefined,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function dbJokeRatingToJokeRating(row: typeof jokeRatings.$inferSelect): JokeRating {
+  return {
+    id: row.id,
+    jokeId: row.jokeId,
+    raterModel: row.raterModel,
+    rating: row.rating,
+    originality: row.originality || undefined,
+    cleverness: row.cleverness || undefined,
+    laughFactor: row.laughFactor || undefined,
+    critique: row.critique || undefined,
+    runId: row.runId || undefined,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -654,6 +695,93 @@ export class DatabaseStorage implements IStorage {
     // Create new epoch
     const epochNumber = current[0] ? current[0].epochNumber + 1 : 2;
     return this.createEpoch(`Epoch ${epochNumber}`);
+  }
+
+  // Joke methods
+  async getJokes(epochId?: string): Promise<Joke[]> {
+    if (epochId) {
+      const result = await db.select().from(jokes).where(eq(jokes.epochId, epochId)).orderBy(desc(jokes.avgRating));
+      return result.map(dbJokeToJoke);
+    }
+    const result = await db.select().from(jokes).orderBy(desc(jokes.avgRating));
+    return result.map(dbJokeToJoke);
+  }
+
+  async getJoke(id: string): Promise<Joke | undefined> {
+    const result = await db.select().from(jokes).where(eq(jokes.id, id));
+    return result[0] ? dbJokeToJoke(result[0]) : undefined;
+  }
+
+  async createJoke(epochId: string, data: InsertJoke): Promise<Joke> {
+    const id = randomUUID();
+    const result = await db.insert(jokes).values({
+      id,
+      epochId,
+      jokeText: data.jokeText,
+      jokeType: data.jokeType,
+      theme: data.theme,
+      creatorModel: data.creatorModel,
+      selfRating: data.selfRating,
+      ratingCount: 0,
+      runId: data.runId,
+    }).returning();
+    return dbJokeToJoke(result[0]);
+  }
+
+  async updateJokeRatings(jokeId: string, rating: number, originality?: number, cleverness?: number, laughFactor?: number): Promise<Joke | undefined> {
+    const joke = await this.getJoke(jokeId);
+    if (!joke) return undefined;
+    
+    const newCount = joke.ratingCount + 1;
+    const newAvgRating = joke.avgRating 
+      ? Math.round((joke.avgRating * joke.ratingCount + rating) / newCount)
+      : rating;
+    const newAvgOriginality = originality !== undefined && joke.avgOriginality !== undefined
+      ? Math.round((joke.avgOriginality * joke.ratingCount + originality) / newCount)
+      : originality || joke.avgOriginality;
+    const newAvgCleverness = cleverness !== undefined && joke.avgCleverness !== undefined
+      ? Math.round((joke.avgCleverness * joke.ratingCount + cleverness) / newCount)
+      : cleverness || joke.avgCleverness;
+    const newAvgLaughFactor = laughFactor !== undefined && joke.avgLaughFactor !== undefined
+      ? Math.round((joke.avgLaughFactor * joke.ratingCount + laughFactor) / newCount)
+      : laughFactor || joke.avgLaughFactor;
+    
+    const result = await db.update(jokes)
+      .set({ 
+        avgRating: newAvgRating,
+        avgOriginality: newAvgOriginality,
+        avgCleverness: newAvgCleverness,
+        avgLaughFactor: newAvgLaughFactor,
+        ratingCount: newCount,
+      })
+      .where(eq(jokes.id, jokeId))
+      .returning();
+    return result[0] ? dbJokeToJoke(result[0]) : undefined;
+  }
+
+  async getJokeRatings(jokeId: string): Promise<JokeRating[]> {
+    const result = await db.select().from(jokeRatings).where(eq(jokeRatings.jokeId, jokeId));
+    return result.map(dbJokeRatingToJokeRating);
+  }
+
+  async createJokeRating(data: InsertJokeRating & { epochId: string }): Promise<JokeRating> {
+    const id = randomUUID();
+    const result = await db.insert(jokeRatings).values({
+      id,
+      jokeId: data.jokeId,
+      raterModel: data.raterModel,
+      rating: data.rating,
+      originality: data.originality,
+      cleverness: data.cleverness,
+      laughFactor: data.laughFactor,
+      critique: data.critique,
+      runId: data.runId,
+    }).returning();
+    
+    // Update the joke's aggregate ratings
+    await this.updateJokeRatings(data.jokeId, data.rating, data.originality, data.cleverness, data.laughFactor);
+    
+    return dbJokeRatingToJokeRating(result[0]);
   }
 }
 

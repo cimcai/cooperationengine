@@ -302,6 +302,92 @@ export interface ToolkitLeaderboardEntry {
   lastUsed: string;
 }
 
+// Jokes Leaderboard - stores jokes created by AI models
+export const jokes = pgTable("jokes", {
+  id: varchar("id").primaryKey(),
+  epochId: varchar("epoch_id").notNull(),
+  jokeText: text("joke_text").notNull(),
+  jokeType: varchar("joke_type", { length: 50 }).notNull(),
+  theme: varchar("theme", { length: 50 }).notNull(),
+  creatorModel: varchar("creator_model").notNull(),
+  selfRating: integer("self_rating"),
+  avgRating: integer("avg_rating"),
+  ratingCount: integer("rating_count").notNull().default(0),
+  avgOriginality: integer("avg_originality"),
+  avgCleverness: integer("avg_cleverness"),
+  avgLaughFactor: integer("avg_laugh_factor"),
+  runId: varchar("run_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface Joke {
+  id: string;
+  epochId: string;
+  jokeText: string;
+  jokeType: string;
+  theme: string;
+  creatorModel: string;
+  selfRating?: number;
+  avgRating?: number;
+  ratingCount: number;
+  avgOriginality?: number;
+  avgCleverness?: number;
+  avgLaughFactor?: number;
+  runId?: string;
+  createdAt: string;
+}
+
+export const insertJokeSchema = z.object({
+  jokeText: z.string().min(1, "Joke text is required"),
+  jokeType: z.string().min(1, "Joke type is required"),
+  theme: z.string().min(1, "Theme is required"),
+  creatorModel: z.string().min(1, "Creator model is required"),
+  selfRating: z.number().min(1).max(10).optional(),
+  runId: z.string().optional(),
+});
+
+export type InsertJoke = z.infer<typeof insertJokeSchema>;
+
+// Joke Ratings - individual ratings from AI models
+export const jokeRatings = pgTable("joke_ratings", {
+  id: varchar("id").primaryKey(),
+  jokeId: varchar("joke_id").notNull().references(() => jokes.id),
+  raterModel: varchar("rater_model").notNull(),
+  rating: integer("rating").notNull(),
+  originality: integer("originality"),
+  cleverness: integer("cleverness"),
+  laughFactor: integer("laugh_factor"),
+  critique: text("critique"),
+  runId: varchar("run_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface JokeRating {
+  id: string;
+  jokeId: string;
+  raterModel: string;
+  rating: number;
+  originality?: number;
+  cleverness?: number;
+  laughFactor?: number;
+  critique?: string;
+  runId?: string;
+  createdAt: string;
+}
+
+export const insertJokeRatingSchema = z.object({
+  jokeId: z.string().min(1, "Joke ID is required"),
+  raterModel: z.string().min(1, "Rater model is required"),
+  rating: z.number().min(1).max(10),
+  originality: z.number().min(1).max(10).optional(),
+  cleverness: z.number().min(1).max(10).optional(),
+  laughFactor: z.number().min(1).max(10).optional(),
+  critique: z.string().optional(),
+  runId: z.string().optional(),
+});
+
+export type InsertJokeRating = z.infer<typeof insertJokeRatingSchema>;
+
 // User schema (keeping for compatibility)
 export interface User {
   id: string;
