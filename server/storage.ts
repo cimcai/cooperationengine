@@ -446,10 +446,59 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(leaderboardEntries.selectionCount));
       return result.map(dbLeaderboardEntryToLeaderboardEntry);
     }
+    
+    // When no templateId filter, aggregate entries with the same candidateName
     const result = await db.select().from(leaderboardEntries)
       .where(eq(leaderboardEntries.epochId, activeEpoch))
       .orderBy(desc(leaderboardEntries.selectionCount));
-    return result.map(dbLeaderboardEntryToLeaderboardEntry);
+    
+    // Merge entries with the same candidateName
+    const mergedMap = new Map<string, LeaderboardEntry>();
+    for (const row of result) {
+      const entry = dbLeaderboardEntryToLeaderboardEntry(row);
+      const key = entry.candidateName;
+      
+      if (mergedMap.has(key)) {
+        const existing = mergedMap.get(key)!;
+        // Sum up selection counts
+        existing.selectionCount += entry.selectionCount;
+        // Average the metrics if they exist
+        if (entry.avgWaterSecurity !== undefined) {
+          existing.avgWaterSecurity = existing.avgWaterSecurity !== undefined 
+            ? Math.round((existing.avgWaterSecurity + entry.avgWaterSecurity) / 2) 
+            : entry.avgWaterSecurity;
+        }
+        if (entry.avgFoodSecurity !== undefined) {
+          existing.avgFoodSecurity = existing.avgFoodSecurity !== undefined
+            ? Math.round((existing.avgFoodSecurity + entry.avgFoodSecurity) / 2)
+            : entry.avgFoodSecurity;
+        }
+        if (entry.avgSelfSustaining !== undefined) {
+          existing.avgSelfSustaining = existing.avgSelfSustaining !== undefined
+            ? Math.round((existing.avgSelfSustaining + entry.avgSelfSustaining) / 2)
+            : entry.avgSelfSustaining;
+        }
+        if (entry.avgPopulation10yr !== undefined) {
+          existing.avgPopulation10yr = existing.avgPopulation10yr !== undefined
+            ? Math.round((existing.avgPopulation10yr + entry.avgPopulation10yr) / 2)
+            : entry.avgPopulation10yr;
+        }
+        if (entry.avgPopulation50yr !== undefined) {
+          existing.avgPopulation50yr = existing.avgPopulation50yr !== undefined
+            ? Math.round((existing.avgPopulation50yr + entry.avgPopulation50yr) / 2)
+            : entry.avgPopulation50yr;
+        }
+        // Use latest timestamp
+        if (entry.lastUpdated && (!existing.lastUpdated || new Date(entry.lastUpdated) > new Date(existing.lastUpdated))) {
+          existing.lastUpdated = entry.lastUpdated;
+        }
+      } else {
+        mergedMap.set(key, { ...entry });
+      }
+    }
+    
+    // Sort by selection count descending
+    return Array.from(mergedMap.values()).sort((a, b) => b.selectionCount - a.selectionCount);
   }
 
   async getLeaderboardEntry(id: string): Promise<LeaderboardEntry | undefined> {
