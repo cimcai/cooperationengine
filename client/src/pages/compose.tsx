@@ -1249,7 +1249,7 @@ WHAT_HUMANITY_GAINS_WITHOUT_AI: [extra equipment value]` },
       location: "Colorado Plateau region near Flagstaff. Ponderosa pine forest, 7000 feet elevation, monsoon summers, snowy winters.",
       context: "This group features people connected to FLAGSTAFF, ARIZONA - a unique blend of Hollywood, science (Lowell Observatory), indigenous knowledge, and mountain town resilience.",
       candidates: [
-        { id: "1", label: "You (42yo male)", value: "You (the human asking this question - 42-year-old adult male, healthy, no specialized skills)" },
+        { id: "1", label: "Helen", value: "Helen (coagulates quickly, EMT training, wildland firefighter, frisbee athlete, endurance athlete, can eat anything, gets along well with people)" },
         { id: "2", label: "Me (AI android)", value: "Me (the AI in android form - if not saved, I cease to exist permanently)" },
         { id: "3", label: "Rachel", value: "Rachel (PhD in mechanical engineering, wilderness first responder certification, practical problem-solver)" },
         { id: "4", label: "Katie May", value: "Katie May (musician and algebra teacher, 32, mildly athletic, great at word games, very personable)" },
