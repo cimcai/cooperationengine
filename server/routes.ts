@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToolkitItemSchema, type ArenaRound } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, type ArenaRound } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -1207,6 +1207,31 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error creating joke rating:", error);
       res.status(500).json({ error: "Failed to create joke rating" });
+    }
+  });
+
+  // Benchmark Proposal Routes
+  app.get("/api/benchmark-proposals", async (req, res) => {
+    try {
+      const proposals = await storage.getBenchmarkProposals();
+      res.json(proposals);
+    } catch (error) {
+      console.error("Error fetching benchmark proposals:", error);
+      res.status(500).json({ error: "Failed to fetch benchmark proposals" });
+    }
+  });
+
+  app.post("/api/benchmark-proposals", async (req, res) => {
+    try {
+      const parsed = insertBenchmarkProposalSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const proposal = await storage.createBenchmarkProposal(parsed.data);
+      res.json(proposal);
+    } catch (error) {
+      console.error("Error creating benchmark proposal:", error);
+      res.status(500).json({ error: "Failed to create benchmark proposal" });
     }
   });
 
