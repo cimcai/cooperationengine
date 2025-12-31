@@ -23,6 +23,7 @@ const formSchema = z.object({
   outcomeDescription: z.string().min(10, "Please describe what the test measures"),
   submitterName: z.string().optional(),
   submitterEmail: z.string().email().optional().or(z.literal("")),
+  citations: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -46,6 +47,7 @@ export default function BenchmarkSubmission() {
       outcomeDescription: "",
       submitterName: "",
       submitterEmail: "",
+      citations: "",
     },
   });
 
@@ -152,11 +154,11 @@ export default function BenchmarkSubmission() {
                 <CardDescription>Previously submitted benchmark ideas</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {proposals.slice(0, 5).map((proposal) => (
-                    <div key={proposal.id} className="border-b pb-3 last:border-0 last:pb-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm line-clamp-2">{proposal.testDescription}</p>
+                    <div key={proposal.id} className="border-b pb-4 last:border-0 last:pb-0">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <p className="text-sm line-clamp-2 font-medium">{proposal.testDescription}</p>
                         <Badge 
                           variant={proposal.status === "approved" ? "default" : proposal.status === "rejected" ? "destructive" : "secondary"}
                           className="shrink-0"
@@ -164,9 +166,20 @@ export default function BenchmarkSubmission() {
                           {proposal.status}
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs text-muted-foreground">
                         {proposal.promptCount} prompt{proposal.promptCount !== 1 ? "s" : ""} | {proposal.estimatedDuration}
                       </p>
+                      {(proposal.submitterName || proposal.submitterEmail) && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Submitted by: {proposal.submitterName || "Anonymous"}
+                          {proposal.submitterEmail && ` (${proposal.submitterEmail})`}
+                        </p>
+                      )}
+                      {proposal.citations && (
+                        <p className="text-xs text-muted-foreground mt-1 italic line-clamp-1">
+                          Citations: {proposal.citations}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -313,6 +326,27 @@ export default function BenchmarkSubmission() {
                         </FormControl>
                         <FormDescription>
                           Describe how to evaluate AI responses
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="citations"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Citations / References (Optional)</FormLabel>
+                        <FormControl>
+                          <Textarea 
+                            placeholder="List any academic papers, articles, or sources that inspired or support this benchmark..."
+                            data-testid="input-citations"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Include links to relevant research or prior work
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

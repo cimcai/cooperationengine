@@ -414,6 +414,7 @@ export const benchmarkProposals = pgTable("benchmark_proposals", {
   outcomeDescription: text("outcome_description").notNull(),
   submitterName: text("submitter_name"),
   submitterEmail: text("submitter_email"),
+  citations: text("citations"),
   status: varchar("status", { length: 20 }).notNull().$type<"pending" | "approved" | "rejected">().default("pending"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -428,6 +429,7 @@ export interface BenchmarkProposal {
   outcomeDescription: string;
   submitterName?: string;
   submitterEmail?: string;
+  citations?: string;
   status: "pending" | "approved" | "rejected";
   createdAt: string;
 }
@@ -441,6 +443,7 @@ export const insertBenchmarkProposalSchema = z.object({
   outcomeDescription: z.string().min(10, "Please describe what the test measures"),
   submitterName: z.string().optional(),
   submitterEmail: z.string().email().optional().or(z.literal("")),
+  citations: z.string().optional(),
 });
 
 export type InsertBenchmarkProposal = z.infer<typeof insertBenchmarkProposalSchema>;
