@@ -11,6 +11,7 @@ import HistoryPage from "@/pages/history";
 import SettingsPage from "@/pages/settings";
 import ResultsPage from "@/pages/results";
 import BenchmarkPage from "@/pages/benchmark";
+import BenchmarkSubmissionPage from "@/pages/benchmark-submission";
 import ArenaPage from "@/pages/arena";
 import ToolkitPage from "@/pages/toolkit";
 import LeaderboardPage from "@/pages/leaderboard";
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/settings" component={SettingsPage} />
       <Route path="/benchmark" component={BenchmarkPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />
+      <Route path="/benchmark-submit" component={BenchmarkSubmissionPage} />
       <Route path="/arena" component={ArenaPage} />
       <Route path="/toolkit" component={ToolkitPage} />
       <Route path="/leaderboard" component={LeaderboardPage} />

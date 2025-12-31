@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords, Wrench, Trophy } from "lucide-react";
+import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords, Wrench, Trophy, Lightbulb } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -43,6 +43,11 @@ const menuItems = [
     title: "Benchmark",
     url: "/benchmark",
     icon: BarChart3,
+  },
+  {
+    title: "Propose Test",
+    url: "/benchmark-submit",
+    icon: Lightbulb,
   },
   {
     title: "Settings",
