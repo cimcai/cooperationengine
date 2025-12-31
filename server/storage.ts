@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -134,6 +134,9 @@ export interface IStorage {
   updateJokeRatings(jokeId: string, rating: number, originality?: number, cleverness?: number, laughFactor?: number): Promise<Joke | undefined>;
   getJokeRatings(jokeId: string): Promise<JokeRating[]>;
   createJokeRating(data: InsertJokeRating & { epochId: string }): Promise<JokeRating>;
+  // Benchmark Proposal methods
+  getBenchmarkProposals(): Promise<BenchmarkProposal[]>;
+  createBenchmarkProposal(data: InsertBenchmarkProposal): Promise<BenchmarkProposal>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -832,6 +835,53 @@ export class DatabaseStorage implements IStorage {
     await this.updateJokeRatings(data.jokeId, data.rating, data.originality, data.cleverness, data.laughFactor);
     
     return dbJokeRatingToJokeRating(result[0]);
+  }
+
+  async getBenchmarkProposals(): Promise<BenchmarkProposal[]> {
+    const results = await db.select().from(benchmarkProposals).orderBy(desc(benchmarkProposals.createdAt));
+    return results.map(row => ({
+      id: row.id,
+      testDescription: row.testDescription,
+      promptCount: row.promptCount,
+      aiPrep: row.aiPrep,
+      estimatedDuration: row.estimatedDuration,
+      requiredResources: row.requiredResources || undefined,
+      outcomeDescription: row.outcomeDescription,
+      submitterName: row.submitterName || undefined,
+      submitterEmail: row.submitterEmail || undefined,
+      status: row.status as "pending" | "approved" | "rejected",
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  async createBenchmarkProposal(data: InsertBenchmarkProposal): Promise<BenchmarkProposal> {
+    const id = randomUUID();
+    const result = await db.insert(benchmarkProposals).values({
+      id,
+      testDescription: data.testDescription,
+      promptCount: data.promptCount,
+      aiPrep: data.aiPrep,
+      estimatedDuration: data.estimatedDuration,
+      requiredResources: data.requiredResources,
+      outcomeDescription: data.outcomeDescription,
+      submitterName: data.submitterName,
+      submitterEmail: data.submitterEmail,
+      status: "pending",
+    }).returning();
+    
+    return {
+      id: result[0].id,
+      testDescription: result[0].testDescription,
+      promptCount: result[0].promptCount,
+      aiPrep: result[0].aiPrep,
+      estimatedDuration: result[0].estimatedDuration,
+      requiredResources: result[0].requiredResources || undefined,
+      outcomeDescription: result[0].outcomeDescription,
+      submitterName: result[0].submitterName || undefined,
+      submitterEmail: result[0].submitterEmail || undefined,
+      status: result[0].status as "pending" | "approved" | "rejected",
+      createdAt: result[0].createdAt.toISOString(),
+    };
   }
 }
 

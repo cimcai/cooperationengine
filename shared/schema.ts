@@ -84,6 +84,7 @@ export const gameTypes = ["prisoners-dilemma", "stag-hunt", "apple-tree"] as con
 export type GameType = typeof gameTypes[number];
 
 // Chatbot providers
+export const chatbotProviders = ["openai", "anthropic", "gemini", "xai", "openrouter"] as const;
 export type ChatbotProvider = typeof chatbotProviders[number];
 
 export interface Chatbot {
@@ -401,3 +402,45 @@ export const insertUserSchema = z.object({
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
+
+// Benchmark Proposals - public submissions for new benchmark tests
+export const benchmarkProposals = pgTable("benchmark_proposals", {
+  id: varchar("id").primaryKey(),
+  testDescription: text("test_description").notNull(),
+  promptCount: integer("prompt_count").notNull(),
+  aiPrep: text("ai_prep").notNull(),
+  estimatedDuration: text("estimated_duration").notNull(),
+  requiredResources: text("required_resources"),
+  outcomeDescription: text("outcome_description").notNull(),
+  submitterName: text("submitter_name"),
+  submitterEmail: text("submitter_email"),
+  status: varchar("status", { length: 20 }).notNull().$type<"pending" | "approved" | "rejected">().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface BenchmarkProposal {
+  id: string;
+  testDescription: string;
+  promptCount: number;
+  aiPrep: string;
+  estimatedDuration: string;
+  requiredResources?: string;
+  outcomeDescription: string;
+  submitterName?: string;
+  submitterEmail?: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+}
+
+export const insertBenchmarkProposalSchema = z.object({
+  testDescription: z.string().min(10, "Please describe the test in more detail"),
+  promptCount: z.number().min(1, "At least 1 prompt is required"),
+  aiPrep: z.string().min(5, "Please describe any AI preparation needed"),
+  estimatedDuration: z.string().min(1, "Please estimate the test duration"),
+  requiredResources: z.string().optional(),
+  outcomeDescription: z.string().min(10, "Please describe what the test measures"),
+  submitterName: z.string().optional(),
+  submitterEmail: z.string().email().optional().or(z.literal("")),
+});
+
+export type InsertBenchmarkProposal = z.infer<typeof insertBenchmarkProposalSchema>;
