@@ -42,6 +42,7 @@ Preferred communication style: Simple, everyday language.
 2. **In-Memory Storage Fallback**: The storage layer (`server/storage.ts`) uses in-memory storage with UUID-based IDs, designed to work with or without database connectivity
 3. **Modular AI Integration**: Each AI provider has dedicated client initialization and wrapper functions in `server/routes.ts`
 4. **Component-Based UI**: Reusable UI components in `client/src/components/ui/` following Shadcn patterns
+5. **Configurable Template System**: Templates marked with `isConfigurable: true` support dynamic variable substitution via `{{PLACEHOLDER}}` syntax. Variables include candidates, equipment, AI systems, location, and context. The `resolveTemplateVariables()` function processes these before submission.
 
 ## External Dependencies
 
