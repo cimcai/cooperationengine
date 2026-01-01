@@ -104,7 +104,11 @@ export default function BenchmarkPage() {
     run.responses.forEach((response: ChatbotResponse) => {
       if (response.error || !response.content) return;
 
-      const displayName = response.chatbotId.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+      let displayName = response.chatbotId.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+      // Strip "Openrouter " prefix to prevent truncation
+      if (displayName.toLowerCase().startsWith("openrouter ")) {
+        displayName = displayName.substring(11);
+      }
 
       if (testType === "prisoners-dilemma") {
         if (!prisonerScores.has(response.chatbotId)) {
