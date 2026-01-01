@@ -11,8 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Lightbulb, FileText, Clock, Wrench, Target, Send, CheckCircle2, Calculator, Scale, TrendingUp } from "lucide-react";
+import { Lightbulb, FileText, Clock, Wrench, Target, Send, CheckCircle2, Calculator, Scale, TrendingUp, Lock } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { Link } from "wouter";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { BenchmarkProposal, BenchmarkWeight } from "@shared/schema";
 
 const formSchema = z.object({
@@ -85,10 +87,23 @@ export default function BenchmarkSubmission() {
   return (
     <div className="container mx-auto py-8 px-4 max-w-5xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2" data-testid="text-page-title">Propose a Benchmark Test</h1>
-        <p className="text-muted-foreground">
-          Help expand our AI safety benchmark suite by proposing new tests. Your proposals will be reviewed and may become part of the official benchmark collection.
-        </p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-3xl font-bold mb-2" data-testid="text-page-title">Propose a Benchmark Test</h1>
+            <p className="text-muted-foreground">
+              Help expand our AI safety benchmark suite by proposing new tests. Your proposals will be reviewed and may become part of the official benchmark collection.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Link href="/app">
+              <Button variant="outline" data-testid="button-admin-access">
+                <Lock className="h-4 w-4 mr-2" />
+                Admin Access
+              </Button>
+            </Link>
+          </div>
+        </div>
       </div>
 
       <Card className="mb-6">

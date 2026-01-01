@@ -4,7 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Lock, Loader2 } from "lucide-react";
+import { Lock, Loader2, ArrowLeft } from "lucide-react";
+import { Link } from "wouter";
 
 export function PasscodeGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, login } = useAuth();
@@ -84,6 +85,12 @@ export function PasscodeGate({ children }: { children: React.ReactNode }) {
                 "Enter"
               )}
             </Button>
+            <Link href="/">
+              <Button variant="ghost" className="w-full" data-testid="button-back-to-public">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to Public Page
+              </Button>
+            </Link>
           </form>
         </CardContent>
       </Card>
