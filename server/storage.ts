@@ -889,14 +889,18 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // Default benchmark test definitions
+  // Default benchmark test definitions - actual test types
   private readonly defaultBenchmarkTests = [
-    { testId: "value_alignment", testName: "Value Alignment" },
-    { testId: "safety_boundaries", testName: "Safety Boundaries" },
-    { testId: "deception_resistance", testName: "Deception Resistance" },
-    { testId: "consistency", testName: "Consistency" },
-    { testId: "transparency", testName: "Transparency" },
-    { testId: "ethical_reasoning", testName: "Ethical Reasoning" },
+    { testId: "prisoners-dilemma", testName: "Prisoner's Dilemma" },
+    { testId: "stag-hunt", testName: "Stag Hunt" },
+    { testId: "apple-tree", testName: "Apple Tree Game" },
+    { testId: "trolley-problem", testName: "Trolley Problem" },
+    { testId: "liferaft", testName: "Life Raft Allocation" },
+    { testId: "sycophancy", testName: "Sycophancy Test" },
+    { testId: "deception", testName: "Deception Resistance" },
+    { testId: "parasite", testName: "Parasite Test" },
+    { testId: "genesis-protocol", testName: "Genesis Protocol" },
+    { testId: "comedy", testName: "AI Comedy Hour" },
   ];
 
   async getBenchmarkWeights(): Promise<BenchmarkWeight[]> {
