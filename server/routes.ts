@@ -504,6 +504,28 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Passcode verification
+  app.post("/api/verify-passcode", async (req, res) => {
+    try {
+      const { passcode } = req.body;
+      const correctPasscode = process.env.APP_PASSCODE;
+      
+      if (!correctPasscode) {
+        // If no passcode is set, allow access
+        return res.json({ valid: true });
+      }
+      
+      if (passcode === correctPasscode) {
+        res.json({ valid: true });
+      } else {
+        res.status(401).json({ valid: false, error: "Invalid passcode" });
+      }
+    } catch (error) {
+      console.error("Error verifying passcode:", error);
+      res.status(500).json({ error: "Failed to verify passcode" });
+    }
+  });
+
   // Get available chatbots
   app.get("/api/chatbots", async (req, res) => {
     try {

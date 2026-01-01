@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AuthProvider } from "@/lib/auth-context";
+import { PasscodeGate } from "@/components/passcode-gate";
 import ComposePage from "@/pages/compose";
 import HistoryPage from "@/pages/history";
 import SettingsPage from "@/pages/settings";
@@ -17,17 +19,16 @@ import ToolkitPage from "@/pages/toolkit";
 import LeaderboardPage from "@/pages/leaderboard";
 import NotFound from "@/pages/not-found";
 
-function Router() {
+function ProtectedRouter() {
   return (
     <Switch>
-      <Route path="/" component={ComposePage} />
+      <Route path="/app" component={ComposePage} />
       <Route path="/compose" component={ComposePage} />
       <Route path="/history" component={HistoryPage} />
       <Route path="/results/:sessionId" component={ResultsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/benchmark" component={BenchmarkPage} />
       <Route path="/benchmarks" component={BenchmarkPage} />
-      <Route path="/benchmark-submit" component={BenchmarkSubmissionPage} />
       <Route path="/arena" component={ArenaPage} />
       <Route path="/toolkit" component={ToolkitPage} />
       <Route path="/leaderboard" component={LeaderboardPage} />
@@ -36,30 +37,52 @@ function Router() {
   );
 }
 
-function App() {
+function ProtectedApp() {
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   };
 
   return (
+    <PasscodeGate>
+      <SidebarProvider style={style as React.CSSProperties}>
+        <div className="flex h-screen w-full">
+          <AppSidebar />
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <header className="flex items-center justify-between gap-2 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+              <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <ThemeToggle />
+            </header>
+            <main className="flex-1 overflow-hidden">
+              <ProtectedRouter />
+            </main>
+          </div>
+        </div>
+      </SidebarProvider>
+    </PasscodeGate>
+  );
+}
+
+function AppRouter() {
+  const [location] = useLocation();
+  
+  // Public routes - no authentication required
+  if (location === "/" || location === "/benchmark-submit" || location === "/propose") {
+    return <BenchmarkSubmissionPage />;
+  }
+  
+  // All other routes require authentication
+  return <ProtectedApp />;
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full">
-            <AppSidebar />
-            <div className="flex flex-col flex-1 overflow-hidden">
-              <header className="flex items-center justify-between gap-2 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
-                <ThemeToggle />
-              </header>
-              <main className="flex-1 overflow-hidden">
-                <Router />
-              </main>
-            </div>
-          </div>
-        </SidebarProvider>
-        <Toaster />
+        <AuthProvider>
+          <AppRouter />
+          <Toaster />
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
