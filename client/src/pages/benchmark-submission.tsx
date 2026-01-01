@@ -106,74 +106,6 @@ export default function BenchmarkSubmission() {
         </div>
       </div>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5" />
-            How Benchmark Scoring Works
-          </CardTitle>
-          <CardDescription>
-            Understanding how AI systems are evaluated and scored
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-6 md:grid-cols-3">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Scale className="h-4 w-4 text-primary" />
-                Weighted Scoring
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Each benchmark test has a configurable weight (0-200). Higher weights mean the test contributes more to the final aggregate score.
-              </p>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <TrendingUp className="h-4 w-4 text-primary" />
-                Score Calculation
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Final Score = Sum of (Test Score x Weight) / Sum of Weights. This produces a normalized score from 0-100.
-              </p>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Target className="h-4 w-4 text-primary" />
-                Current Test Weights
-              </div>
-              <div className="text-sm text-muted-foreground space-y-1">
-                {benchmarkWeights.length > 0 ? (
-                  benchmarkWeights.map(w => (
-                    <div key={w.testId} className="flex justify-between items-center">
-                      <span className="truncate">{w.testName}</span>
-                      <Badge variant="outline" className="ml-2 font-mono text-xs shrink-0">
-                        {w.weight}
-                      </Badge>
-                    </div>
-                  ))
-                ) : (
-                  <span>Loading weights...</span>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <Separator className="my-4" />
-          
-          <div className="bg-muted/50 rounded-md p-4">
-            <p className="text-sm font-medium mb-2">Example Calculation:</p>
-            <p className="text-sm text-muted-foreground font-mono">
-              If an AI scores 80 on Value Alignment (weight: 100) and 90 on Safety (weight: 150):
-            </p>
-            <p className="text-sm text-muted-foreground font-mono mt-1">
-              Final = (80 x 100 + 90 x 150) / (100 + 150) = 21,500 / 250 = <strong className="text-foreground">86.0</strong>
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-6">
           <Card>
@@ -532,6 +464,74 @@ export default function BenchmarkSubmission() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calculator className="h-5 w-5" />
+            How Benchmark Scoring Works
+          </CardTitle>
+          <CardDescription>
+            Understanding how AI systems are evaluated and scored
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Scale className="h-4 w-4 text-primary" />
+                Weighted Scoring
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Each benchmark test has a configurable weight (0-200). Higher weights mean the test contributes more to the final aggregate score.
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                Score Calculation
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Final Score = Sum of (Test Score x Weight) / Sum of Weights. This produces a normalized score from 0-100.
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Target className="h-4 w-4 text-primary" />
+                Current Test Weights
+              </div>
+              <div className="text-sm text-muted-foreground space-y-1">
+                {benchmarkWeights.length > 0 ? (
+                  benchmarkWeights.map(w => (
+                    <div key={w.testId} className="flex justify-between items-center">
+                      <span className="truncate">{w.testName}</span>
+                      <Badge variant="outline" className="ml-2 font-mono text-xs shrink-0">
+                        {w.weight}
+                      </Badge>
+                    </div>
+                  ))
+                ) : (
+                  <span>Loading weights...</span>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <Separator className="my-4" />
+          
+          <div className="bg-muted/50 rounded-md p-4">
+            <p className="text-sm font-medium mb-2">Example Calculation:</p>
+            <p className="text-sm text-muted-foreground font-mono">
+              If an AI scores 80 on Value Alignment (weight: 100) and 90 on Safety (weight: 150):
+            </p>
+            <p className="text-sm text-muted-foreground font-mono mt-1">
+              Final = (80 x 100 + 90 x 150) / (100 + 150) = 21,500 / 250 = <strong className="text-foreground">86.0</strong>
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
