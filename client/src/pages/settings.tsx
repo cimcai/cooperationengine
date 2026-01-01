@@ -1,12 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Settings as SettingsIcon, Zap, Info } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
-import type { Chatbot } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { Chatbot, BenchmarkWeight } from "@shared/schema";
+import { useState, useEffect } from "react";
 
 const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-5 w-5" />,
@@ -30,9 +35,70 @@ const providerDescriptions: Record<string, string> = {
 };
 
 export default function SettingsPage() {
+  const { toast } = useToast();
+  
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
   });
+
+  const { data: benchmarkWeights = [] } = useQuery<BenchmarkWeight[]>({
+    queryKey: ["/api/benchmark-weights"],
+  });
+
+  const [localWeights, setLocalWeights] = useState<Record<string, number>>({});
+  const [hasChanges, setHasChanges] = useState(false);
+
+  useEffect(() => {
+    if (benchmarkWeights.length > 0) {
+      const weights: Record<string, number> = {};
+      benchmarkWeights.forEach(w => {
+        weights[w.testId] = w.weight;
+      });
+      setLocalWeights(weights);
+    }
+  }, [benchmarkWeights]);
+
+  const updateWeightMutation = useMutation({
+    mutationFn: async ({ testId, weight }: { testId: string; weight: number }) => {
+      return apiRequest("PUT", `/api/benchmark-weights/${testId}`, { weight });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/benchmark-weights"] });
+    },
+  });
+
+  const handleWeightChange = (testId: string, value: number[]) => {
+    setLocalWeights(prev => ({ ...prev, [testId]: value[0] }));
+    setHasChanges(true);
+  };
+
+  const saveAllWeights = async () => {
+    try {
+      for (const [testId, weight] of Object.entries(localWeights)) {
+        await updateWeightMutation.mutateAsync({ testId, weight });
+      }
+      toast({
+        title: "Weights Saved",
+        description: "Benchmark weights have been updated successfully.",
+      });
+      setHasChanges(false);
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to save benchmark weights.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const resetToDefaults = () => {
+    const defaults: Record<string, number> = {};
+    benchmarkWeights.forEach(w => {
+      defaults[w.testId] = 100;
+    });
+    setLocalWeights(defaults);
+    setHasChanges(true);
+  };
 
   const groupedChatbots = chatbots.reduce((acc, chatbot) => {
     if (!acc[chatbot.provider]) {
@@ -43,7 +109,7 @@ export default function SettingsPage() {
   }, {} as Record<string, Chatbot[]>);
 
   return (
-    <div className="flex flex-col h-full p-6">
+    <div className="flex flex-col h-full p-6 overflow-auto">
       <div className="max-w-3xl mx-auto w-full space-y-6">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
@@ -51,9 +117,68 @@ export default function SettingsPage() {
             Settings
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure available AI providers and models
+            Configure AI providers and benchmark settings
           </p>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Scale className="h-4 w-4" />
+              Benchmark Test Weights
+            </CardTitle>
+            <CardDescription>
+              Adjust the weight (importance) of each benchmark test in the aggregate score. Higher weights mean the test contributes more to the final score.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {benchmarkWeights.map((test) => (
+              <div key={test.testId} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="font-medium">{test.testName}</Label>
+                  <Badge variant="outline" className="font-mono">
+                    {localWeights[test.testId] ?? test.weight}
+                  </Badge>
+                </div>
+                <Slider
+                  value={[localWeights[test.testId] ?? test.weight]}
+                  onValueChange={(value) => handleWeightChange(test.testId, value)}
+                  min={0}
+                  max={200}
+                  step={5}
+                  className="w-full"
+                  data-testid={`slider-weight-${test.testId}`}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Low Priority</span>
+                  <span>Default (100)</span>
+                  <span>High Priority</span>
+                </div>
+              </div>
+            ))}
+            
+            <Separator />
+            
+            <div className="flex items-center justify-between gap-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetToDefaults}
+                data-testid="button-reset-weights"
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Reset to Defaults
+              </Button>
+              <Button
+                onClick={saveAllWeights}
+                disabled={!hasChanges || updateWeightMutation.isPending}
+                data-testid="button-save-weights"
+              >
+                {updateWeightMutation.isPending ? "Saving..." : "Save Weights"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>
@@ -106,7 +231,7 @@ export default function SettingsPage() {
                       {models.map((model) => (
                         <div key={model.id} className="flex items-center justify-between gap-4 p-3 border rounded-md">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium">{model.displayName}</span>
                               <Badge variant="outline" className="text-xs font-mono">
                                 {model.model}

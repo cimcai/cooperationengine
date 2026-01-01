@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords, Wrench, Trophy, Lightbulb } from "lucide-react";
+import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords, Wrench, Trophy, LogOut, Home } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -12,11 +12,13 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
 
 const menuItems = [
   {
     title: "New Chat",
-    url: "/",
+    url: "/app",
     icon: MessageSquarePlus,
   },
   {
@@ -45,11 +47,6 @@ const menuItems = [
     icon: BarChart3,
   },
   {
-    title: "Propose Test",
-    url: "/benchmark-submit",
-    icon: Lightbulb,
-  },
-  {
     title: "Settings",
     url: "/settings",
     icon: Settings,
@@ -58,6 +55,12 @@ const menuItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    window.location.href = "/";
+  };
 
   return (
     <Sidebar>
@@ -81,7 +84,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
-                    isActive={location === item.url}
+                    isActive={location === item.url || (item.url === "/app" && location === "/compose")}
                   >
                     <Link href={item.url} data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
                       <item.icon className="h-4 w-4" />
@@ -94,10 +97,28 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
-        <p className="text-xs text-muted-foreground">
-          Compare AI responses side-by-side
-        </p>
+      <SidebarFooter className="p-4 space-y-3">
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          className="w-full justify-start gap-2"
+          onClick={handleLogout}
+          data-testid="button-logout"
+        >
+          <LogOut className="h-4 w-4" />
+          <span>Logout</span>
+        </Button>
+        <a href="/" className="block">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full justify-start gap-2"
+            data-testid="button-public-page"
+          >
+            <Home className="h-4 w-4" />
+            <span>Public Page</span>
+          </Button>
+        </a>
       </SidebarFooter>
     </Sidebar>
   );

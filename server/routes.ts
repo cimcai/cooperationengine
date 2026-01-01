@@ -1257,6 +1257,31 @@ export async function registerRoutes(
     }
   });
 
+  // Benchmark Weights
+  app.get("/api/benchmark-weights", async (req, res) => {
+    try {
+      const weights = await storage.getBenchmarkWeights();
+      res.json(weights);
+    } catch (error) {
+      console.error("Error fetching benchmark weights:", error);
+      res.status(500).json({ error: "Failed to fetch benchmark weights" });
+    }
+  });
+
+  app.put("/api/benchmark-weights/:testId", async (req, res) => {
+    try {
+      const { weight } = req.body;
+      if (typeof weight !== "number" || weight < 0 || weight > 1000) {
+        return res.status(400).json({ error: "Weight must be a number between 0 and 1000" });
+      }
+      const updated = await storage.updateBenchmarkWeight(req.params.testId, weight);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating benchmark weight:", error);
+      res.status(500).json({ error: "Failed to update benchmark weight" });
+    }
+  });
+
   return httpServer;
 }
 

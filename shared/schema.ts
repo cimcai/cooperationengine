@@ -447,3 +447,28 @@ export const insertBenchmarkProposalSchema = z.object({
 });
 
 export type InsertBenchmarkProposal = z.infer<typeof insertBenchmarkProposalSchema>;
+
+// Benchmark Weights - admin-configurable weights for benchmark scoring
+export const benchmarkWeights = pgTable("benchmark_weights", {
+  id: varchar("id").primaryKey(),
+  testId: varchar("test_id").notNull(),
+  testName: text("test_name").notNull(),
+  weight: integer("weight").notNull().default(100),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export interface BenchmarkWeight {
+  id: string;
+  testId: string;
+  testName: string;
+  weight: number;
+  updatedAt: string;
+}
+
+export const insertBenchmarkWeightSchema = z.object({
+  testId: z.string(),
+  testName: z.string(),
+  weight: z.number().min(0).max(1000),
+});
+
+export type InsertBenchmarkWeight = z.infer<typeof insertBenchmarkWeightSchema>;

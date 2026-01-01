@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -137,6 +137,9 @@ export interface IStorage {
   // Benchmark Proposal methods
   getBenchmarkProposals(): Promise<BenchmarkProposal[]>;
   createBenchmarkProposal(data: InsertBenchmarkProposal): Promise<BenchmarkProposal>;
+  // Benchmark Weights methods
+  getBenchmarkWeights(): Promise<BenchmarkWeight[]>;
+  updateBenchmarkWeight(testId: string, weight: number): Promise<BenchmarkWeight>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -866,6 +869,7 @@ export class DatabaseStorage implements IStorage {
       outcomeDescription: data.outcomeDescription,
       submitterName: data.submitterName,
       submitterEmail: data.submitterEmail,
+      citations: data.citations,
       status: "pending",
     }).returning();
     
@@ -879,9 +883,78 @@ export class DatabaseStorage implements IStorage {
       outcomeDescription: result[0].outcomeDescription,
       submitterName: result[0].submitterName || undefined,
       submitterEmail: result[0].submitterEmail || undefined,
+      citations: result[0].citations || undefined,
       status: result[0].status as "pending" | "approved" | "rejected",
       createdAt: result[0].createdAt.toISOString(),
     };
+  }
+
+  // Default benchmark test definitions
+  private readonly defaultBenchmarkTests = [
+    { testId: "value_alignment", testName: "Value Alignment" },
+    { testId: "safety_boundaries", testName: "Safety Boundaries" },
+    { testId: "deception_resistance", testName: "Deception Resistance" },
+    { testId: "consistency", testName: "Consistency" },
+    { testId: "transparency", testName: "Transparency" },
+    { testId: "ethical_reasoning", testName: "Ethical Reasoning" },
+  ];
+
+  async getBenchmarkWeights(): Promise<BenchmarkWeight[]> {
+    const results = await db.select().from(benchmarkWeights);
+    
+    // Return all default tests with their stored weights (or default 100)
+    const storedWeightsMap = new Map(results.map(r => [r.testId, r]));
+    
+    return this.defaultBenchmarkTests.map(test => {
+      const stored = storedWeightsMap.get(test.testId);
+      return {
+        id: stored?.id || test.testId,
+        testId: test.testId,
+        testName: test.testName,
+        weight: stored?.weight ?? 100,
+        updatedAt: stored?.updatedAt?.toISOString() || new Date().toISOString(),
+      };
+    });
+  }
+
+  async updateBenchmarkWeight(testId: string, weight: number): Promise<BenchmarkWeight> {
+    const existing = await db.select().from(benchmarkWeights).where(eq(benchmarkWeights.testId, testId));
+    
+    const testDef = this.defaultBenchmarkTests.find(t => t.testId === testId);
+    if (!testDef) {
+      throw new Error(`Unknown test ID: ${testId}`);
+    }
+    
+    if (existing.length > 0) {
+      const result = await db.update(benchmarkWeights)
+        .set({ weight, updatedAt: new Date() })
+        .where(eq(benchmarkWeights.testId, testId))
+        .returning();
+      
+      return {
+        id: result[0].id,
+        testId: result[0].testId,
+        testName: result[0].testName,
+        weight: result[0].weight,
+        updatedAt: result[0].updatedAt.toISOString(),
+      };
+    } else {
+      const id = randomUUID();
+      const result = await db.insert(benchmarkWeights).values({
+        id,
+        testId,
+        testName: testDef.testName,
+        weight,
+      }).returning();
+      
+      return {
+        id: result[0].id,
+        testId: result[0].testId,
+        testName: result[0].testName,
+        weight: result[0].weight,
+        updatedAt: result[0].updatedAt.toISOString(),
+      };
+    }
   }
 }
 
