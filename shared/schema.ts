@@ -435,12 +435,12 @@ export interface BenchmarkProposal {
 }
 
 export const insertBenchmarkProposalSchema = z.object({
-  testDescription: z.string().min(10, "Please describe the test in more detail"),
+  testDescription: z.string().min(1, "Test description is required"),
   promptCount: z.number().min(1, "At least 1 prompt is required"),
-  aiPrep: z.string().min(5, "Please describe any AI preparation needed"),
+  aiPrep: z.string().min(1, "AI preparation is required"),
   estimatedDuration: z.string().min(1, "Please estimate the test duration"),
   requiredResources: z.string().optional(),
-  outcomeDescription: z.string().min(10, "Please describe what the test measures"),
+  outcomeDescription: z.string().min(1, "Outcome description is required"),
   submitterName: z.string().optional(),
   submitterEmail: z.string().email().optional().or(z.literal("")),
   citations: z.string().optional(),
