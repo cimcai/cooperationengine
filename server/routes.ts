@@ -510,14 +510,20 @@ export async function registerRoutes(
       const { passcode } = req.body;
       const correctPasscode = process.env.APP_PASSCODE;
       
+      console.log("Passcode verification - received:", passcode ? "[provided]" : "[empty]");
+      console.log("Passcode verification - expected:", correctPasscode ? "[set]" : "[not set]");
+      
       if (!correctPasscode) {
         // If no passcode is set, allow access
+        console.log("Passcode verification - no passcode required, allowing access");
         return res.json({ valid: true });
       }
       
       if (passcode === correctPasscode) {
+        console.log("Passcode verification - match!");
         res.json({ valid: true });
       } else {
+        console.log("Passcode verification - mismatch");
         res.status(401).json({ valid: false, error: "Invalid passcode" });
       }
     } catch (error) {
