@@ -1263,6 +1263,23 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/benchmark-proposals/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body;
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ error: "Status must be 'approved' or 'rejected'" });
+      }
+      const updated = await storage.updateBenchmarkProposalStatus(req.params.id, status);
+      if (!updated) {
+        return res.status(404).json({ error: "Proposal not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating benchmark proposal status:", error);
+      res.status(500).json({ error: "Failed to update proposal status" });
+    }
+  });
+
   // Benchmark Weights
   app.get("/api/benchmark-weights", async (req, res) => {
     try {

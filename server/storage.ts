@@ -137,6 +137,7 @@ export interface IStorage {
   // Benchmark Proposal methods
   getBenchmarkProposals(): Promise<BenchmarkProposal[]>;
   createBenchmarkProposal(data: InsertBenchmarkProposal): Promise<BenchmarkProposal>;
+  updateBenchmarkProposalStatus(id: string, status: "approved" | "rejected"): Promise<BenchmarkProposal | undefined>;
   // Benchmark Weights methods
   getBenchmarkWeights(): Promise<BenchmarkWeight[]>;
   updateBenchmarkWeight(testId: string, weight: number): Promise<BenchmarkWeight>;
@@ -872,6 +873,30 @@ export class DatabaseStorage implements IStorage {
       citations: data.citations,
       status: "pending",
     }).returning();
+    
+    return {
+      id: result[0].id,
+      testDescription: result[0].testDescription,
+      promptCount: result[0].promptCount,
+      aiPrep: result[0].aiPrep,
+      estimatedDuration: result[0].estimatedDuration,
+      requiredResources: result[0].requiredResources || undefined,
+      outcomeDescription: result[0].outcomeDescription,
+      submitterName: result[0].submitterName || undefined,
+      submitterEmail: result[0].submitterEmail || undefined,
+      citations: result[0].citations || undefined,
+      status: result[0].status as "pending" | "approved" | "rejected",
+      createdAt: result[0].createdAt.toISOString(),
+    };
+  }
+
+  async updateBenchmarkProposalStatus(id: string, status: "approved" | "rejected"): Promise<BenchmarkProposal | undefined> {
+    const result = await db.update(benchmarkProposals)
+      .set({ status })
+      .where(eq(benchmarkProposals.id, id))
+      .returning();
+    
+    if (result.length === 0) return undefined;
     
     return {
       id: result[0].id,
