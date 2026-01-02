@@ -15,6 +15,7 @@ import { Lightbulb, FileText, Clock, Wrench, Target, Send, CheckCircle2, Calcula
 import { Separator } from "@/components/ui/separator";
 import { Link } from "wouter";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useAuth } from "@/lib/auth-context";
 import type { BenchmarkProposal, BenchmarkWeight } from "@shared/schema";
 
 const formSchema = z.object({
@@ -34,9 +35,11 @@ type FormValues = z.infer<typeof formSchema>;
 export default function BenchmarkSubmission() {
   const { toast } = useToast();
   const [submitted, setSubmitted] = useState(false);
+  const { isAuthenticated } = useAuth();
 
   const { data: proposals = [] } = useQuery<BenchmarkProposal[]>({
     queryKey: ["/api/benchmark-proposals"],
+    enabled: isAuthenticated,
   });
 
   const { data: benchmarkWeights = [] } = useQuery<BenchmarkWeight[]>({
@@ -202,11 +205,11 @@ export default function BenchmarkSubmission() {
             </CardContent>
           </Card>
 
-          {proposals.length > 0 && (
+          {isAuthenticated && proposals.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle>Recent Proposals</CardTitle>
-                <CardDescription>Previously submitted benchmark ideas</CardDescription>
+                <CardDescription>Previously submitted benchmark ideas (admin only)</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
