@@ -5,6 +5,7 @@ import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToo
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
+import { Resend } from "resend";
 
 // Initialize AI clients
 const openai = new OpenAI({
@@ -36,6 +37,16 @@ const openrouter = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
 });
+
+// Email client for notifications
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+// Notification recipients for benchmark proposals
+const PROPOSAL_NOTIFICATION_EMAILS = [
+  "athena.aktipis@gmail.com",
+  "jdietz@gmail.com", 
+  "jdietz@mit.edu"
+];
 
 // Auto-extract toolkit items from "Design Your Apocalypse AI" template
 async function autoExtractToolkitData(run: any, session: any, chatbotId: string) {
@@ -1256,6 +1267,37 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.message });
       }
       const proposal = await storage.createBenchmarkProposal(parsed.data);
+      
+      // Send email notification
+      if (resend) {
+        try {
+          await resend.emails.send({
+            from: "Cooperation Engine <onboarding@resend.dev>",
+            to: PROPOSAL_NOTIFICATION_EMAILS,
+            subject: `New Benchmark Proposal: ${parsed.data.testName}`,
+            html: `
+              <h2>New Benchmark Proposal Submitted</h2>
+              <p><strong>Test Name:</strong> ${parsed.data.testName}</p>
+              <p><strong>Submitter:</strong> ${parsed.data.submitterName} (${parsed.data.submitterEmail})</p>
+              <p><strong>Category:</strong> ${parsed.data.category}</p>
+              <h3>Description</h3>
+              <p>${parsed.data.description}</p>
+              <h3>Research Justification</h3>
+              <p>${parsed.data.researchJustification}</p>
+              <h3>Prompt Template</h3>
+              <pre style="background: #f5f5f5; padding: 12px; border-radius: 4px;">${parsed.data.promptTemplate}</pre>
+              <h3>Scoring Methodology</h3>
+              <p>${parsed.data.scoringMethodology}</p>
+              <hr />
+              <p><a href="${process.env.REPLIT_DEV_DOMAIN ? 'https://' + process.env.REPLIT_DEV_DOMAIN : ''}/proposals">Review this proposal in the admin panel</a></p>
+            `,
+          });
+          console.log("Email notification sent for new proposal:", parsed.data.testName);
+        } catch (emailError) {
+          console.error("Failed to send email notification:", emailError);
+        }
+      }
+      
       res.json(proposal);
     } catch (error) {
       console.error("Error creating benchmark proposal:", error);
