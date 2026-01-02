@@ -506,8 +506,8 @@ export default function BenchmarkSubmission() {
                 Current Test Weights
               </div>
               <div className="text-sm text-muted-foreground space-y-1">
-                {benchmarkWeights.length > 0 ? (
-                  benchmarkWeights.map(w => (
+                {benchmarkWeights.filter(w => w.weight > 0).length > 0 ? (
+                  benchmarkWeights.filter(w => w.weight > 0).map(w => (
                     <div key={w.testId} className="flex justify-between items-center">
                       <span className="truncate">{w.testName}</span>
                       <Badge variant="outline" className="ml-2 font-mono text-xs shrink-0">
@@ -516,7 +516,7 @@ export default function BenchmarkSubmission() {
                     </div>
                   ))
                 ) : (
-                  <span>Loading weights...</span>
+                  <span className="italic">No weights configured</span>
                 )}
               </div>
             </div>
