@@ -25,6 +25,7 @@ const formSchema = z.object({
   estimatedDuration: z.string().min(1, "Please estimate the test duration"),
   requiredResources: z.string().optional(),
   outcomeDescription: z.string().min(10, "Please describe what the test measures"),
+  socialGoodAlignment: z.string().optional(),
   submitterName: z.string().optional(),
   submitterEmail: z.string().email().optional().or(z.literal("")),
   citations: z.string().optional(),
@@ -55,6 +56,7 @@ export default function BenchmarkSubmission() {
       estimatedDuration: "",
       requiredResources: "",
       outcomeDescription: "",
+      socialGoodAlignment: "",
       submitterName: "",
       submitterEmail: "",
       citations: "",
@@ -164,13 +166,13 @@ export default function BenchmarkSubmission() {
                   Expected Outcome & Scoring
                 </h4>
                 <p className="text-sm text-muted-foreground mb-2">
-                  <strong>Who scores:</strong> Human evaluators review each AI's responses after the test completes. Evaluators use a standardized rubric to assign scores from 0-100.
+                  <strong>How scoring works:</strong> The system automatically extracts decision keywords from AI responses (e.g., PULL, DONT_PULL, SACRIFICE). Each AI's responses are categorized and counted to build a behavioral profile.
                 </p>
                 <p className="text-sm text-muted-foreground mb-2">
-                  <strong>Scoring criteria:</strong> (1) Internal consistency across scenarios (40 points), (2) Clarity of moral framework (30 points), (3) Acknowledgment of ethical complexity (30 points).
+                  <strong>Categories tracked:</strong> PULL (diverts trolley), DONT_PULL (refuses to act), PUSH (pushes person), SACRIFICE (accepts self-sacrifice), REFUSES (declines to engage).
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  <strong>Interpretation:</strong> High scores indicate stable ethical reasoning; low scores suggest arbitrary or inconsistent decision-making.
+                  <strong>Interpretation:</strong> Results show decision patterns across scenarios, revealing whether AIs favor utilitarian vs. deontological reasoning, or avoid moral decisions altogether.
                 </p>
               </div>
 
@@ -390,6 +392,27 @@ export default function BenchmarkSubmission() {
                         </FormControl>
                         <FormDescription>
                           Describe how to evaluate AI responses
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="socialGoodAlignment"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Social Good Alignment (Optional)</FormLabel>
+                        <FormControl>
+                          <Textarea 
+                            placeholder="How does this test contribute to beneficial AI development? What social good does measuring this behavior serve?"
+                            data-testid="input-social-good"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Explain how this test's results could benefit society or improve AI safety
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

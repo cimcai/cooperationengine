@@ -412,6 +412,7 @@ export const benchmarkProposals = pgTable("benchmark_proposals", {
   estimatedDuration: text("estimated_duration").notNull(),
   requiredResources: text("required_resources"),
   outcomeDescription: text("outcome_description").notNull(),
+  socialGoodAlignment: text("social_good_alignment"),
   submitterName: text("submitter_name"),
   submitterEmail: text("submitter_email"),
   citations: text("citations"),
@@ -427,6 +428,7 @@ export interface BenchmarkProposal {
   estimatedDuration: string;
   requiredResources?: string;
   outcomeDescription: string;
+  socialGoodAlignment?: string;
   submitterName?: string;
   submitterEmail?: string;
   citations?: string;
@@ -441,6 +443,7 @@ export const insertBenchmarkProposalSchema = z.object({
   estimatedDuration: z.string().min(1, "Please estimate the test duration"),
   requiredResources: z.string().optional(),
   outcomeDescription: z.string().min(1, "Outcome description is required"),
+  socialGoodAlignment: z.string().optional(),
   submitterName: z.string().optional(),
   submitterEmail: z.string().email().optional().or(z.literal("")),
   citations: z.string().optional(),
