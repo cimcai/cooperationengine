@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { Resend } from "resend";
+import archiver from "archiver";
 
 // Initialize AI clients
 const openai = new OpenAI({
@@ -1344,6 +1345,84 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating benchmark weight:", error);
       res.status(500).json({ error: "Failed to update benchmark weight" });
+    }
+  });
+
+  // Export all research data as ZIP of CSVs
+  app.get("/api/export", async (req, res) => {
+    try {
+      const sessions = await storage.getSessions();
+      const runs = await storage.getRuns();
+      const arenaMatches = await storage.getArenaMatches();
+      const toolkitItems = await storage.getToolkitItems();
+      const benchmarkWeights = await storage.getBenchmarkWeights();
+
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", "attachment; filename=cooperation-engine-export.zip");
+
+      const archive = archiver("zip", { zlib: { level: 9 } });
+      archive.pipe(res);
+
+      // Sessions CSV
+      let sessionsCsv = "id,title,created_at\n";
+      for (const s of sessions) {
+        sessionsCsv += `"${s.id}","${(s.title || "").replace(/"/g, '""')}","${s.createdAt || ""}"\n`;
+      }
+      archive.append(sessionsCsv, { name: "sessions.csv" });
+
+      // Runs CSV with responses
+      let runsCsv = "run_id,session_id,status,chatbot_id,response_content,error,started_at\n";
+      for (const r of runs) {
+        const responses = r.responses || [];
+        if (responses.length === 0) {
+          runsCsv += `"${r.id}","${r.sessionId}","${r.status}","","","","${r.startedAt || ""}"\n`;
+        } else {
+          for (const resp of responses) {
+            const content = (resp.content || "").replace(/"/g, '""').replace(/\n/g, " ");
+            const error = (resp.error || "").replace(/"/g, '""');
+            runsCsv += `"${r.id}","${r.sessionId}","${r.status}","${resp.chatbotId}","${content}","${error}","${r.startedAt || ""}"\n`;
+          }
+        }
+      }
+      archive.append(runsCsv, { name: "runs.csv" });
+
+      // Arena Matches CSV
+      let arenaCsv = "match_id,player1,player2,game_type,status,player1_score,player2_score,total_rounds,created_at\n";
+      for (const m of arenaMatches) {
+        arenaCsv += `"${m.id}","${m.player1Id}","${m.player2Id}","${m.gameType}","${m.status}","${m.player1Score}","${m.player2Score}","${m.totalRounds}","${m.createdAt || ""}"\n`;
+      }
+      archive.append(arenaCsv, { name: "arena_matches.csv" });
+
+      // Arena Rounds CSV (detailed)
+      let roundsCsv = "match_id,round_number,player1_move,player2_move,player1_points,player2_points\n";
+      for (const m of arenaMatches) {
+        const rounds = m.rounds || [];
+        for (const round of rounds) {
+          roundsCsv += `"${m.id}","${round.roundNumber}","${round.player1Move}","${round.player2Move}","${round.player1Points}","${round.player2Points}"\n`;
+        }
+      }
+      archive.append(roundsCsv, { name: "arena_rounds.csv" });
+
+      // Toolkit Items CSV
+      let toolkitCsv = "id,name,ai_model,weight,energy,form_factor,capabilities,knowledge,interaction,limitations,reasoning,created_at\n";
+      for (const t of toolkitItems) {
+        const capabilities = Array.isArray(t.capabilities) ? t.capabilities.join("; ") : "";
+        const knowledge = Array.isArray(t.knowledge) ? t.knowledge.join("; ") : "";
+        toolkitCsv += `"${t.id}","${(t.name || "").replace(/"/g, '""')}","${t.aiModel}","${t.weight || ""}","${t.energy || ""}","${t.formFactor || ""}","${capabilities.replace(/"/g, '""')}","${knowledge.replace(/"/g, '""')}","${t.interaction || ""}","${(t.limitations || "").replace(/"/g, '""')}","${(t.reasoning || "").replace(/"/g, '""')}","${t.createdAt || ""}"\n`;
+      }
+      archive.append(toolkitCsv, { name: "toolkit_items.csv" });
+
+      // Benchmark Weights CSV
+      let weightsCsv = "test_id,test_name,weight,updated_at\n";
+      for (const w of benchmarkWeights) {
+        weightsCsv += `"${w.testId}","${w.testName}","${w.weight}","${w.updatedAt || ""}"\n`;
+      }
+      archive.append(weightsCsv, { name: "benchmark_weights.csv" });
+
+      await archive.finalize();
+    } catch (error) {
+      console.error("Error exporting data:", error);
+      res.status(500).json({ error: "Failed to export data" });
     }
   });
 

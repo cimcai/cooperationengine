@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw } from "lucide-react";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -257,6 +257,34 @@ export default function SettingsPage() {
                 </div>
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              Export Research Data
+            </CardTitle>
+            <CardDescription>
+              Download all research data as a ZIP file containing CSVs
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Export includes: sessions, runs with AI responses, arena matches and rounds, toolkit items, and benchmark weights.
+              </p>
+              <Button
+                onClick={() => {
+                  window.location.href = "/api/export";
+                }}
+                data-testid="button-export-data"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download All Data (ZIP)
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
