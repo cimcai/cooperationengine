@@ -1060,6 +1060,18 @@ export default function BenchmarkSubmission() {
           )}
         </TabsContent>
       </Tabs>
+
+      <div className="mt-8 pt-6 border-t text-center">
+        <a 
+          href="https://www.cooperationbenchmark.org" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="text-primary hover:underline text-sm"
+          data-testid="link-cooperation-benchmark"
+        >
+          www.cooperationbenchmark.org
+        </a>
+      </div>
     </div>
   );
 }
