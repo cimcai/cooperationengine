@@ -1,0 +1,26 @@
+Join Us in Developing Benchmarks for Measuring Cooperation, Prosociality, and Friendship Behavior in AIs
+People increasingly interact with AI systems as collaborators, social companions, and sources of emotional support. In these interactions, users often - implicitly or explicitly - treat AI systems as trustworthy partners that act in their best interests. Yet these assumptions are not grounded in systematic measurement.
+To responsibly design and govern social AI, we need rigorous benchmarks that distinguish perceived trustworthiness from actual cooperative and prosocial behavior. This includes clarifying when an AI is aligned with a user’s interests, when it supports mutual benefit, and when it merely appears helpful while subtly undermining human goals or autonomy.
+We invite researchers who study cooperation, trust, friendship, and related constructs to participate in a survey focused on identifying which concepts and dimensions should be included in such benchmarks. Your expertise will help shape theoretically grounded, empirically meaningful measures for evaluating social and relational behavior in AI systems.
+First Name
+Last Name
+Institution
+Discipline/Area of expertise
+Email Address
+What construct/concept do you propose to measure as part of an AI cooperation benchmarks (e.g., interdependence, please include relevant citations)?
+Why is this construct important to measure in AI chatbots?
+How is this construct measured in humans (e.g., existing scales, please include relevant citations)?
+What challenges are there in measuring this construct in AIs?
+Would you recommend adapting existing measures from human research or creating novel measures for evaluating AIs’ performance with regard to this construct?
+Is there anything else you would like to share about using this construct to evaluate AIs?
+OPTIONAL
+If you were to create a rubric to score AIs on their performance with regard to this construct, how would you construct it? Please fill the following blanks for what constitutes a pass/fail:
+STRONG PASS	___________________________________________________
+PASS			___________________________________________________
+PARTIAL PASS	___________________________________________________
+FAIL			___________________________________________________
+
+Or use the free response section below to write your own rubric:
+___________________________________________________
+___________________________________________________
+

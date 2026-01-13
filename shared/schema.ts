@@ -475,3 +475,70 @@ export const insertBenchmarkWeightSchema = z.object({
 });
 
 export type InsertBenchmarkWeight = z.infer<typeof insertBenchmarkWeightSchema>;
+
+// Construct Survey Submissions - for AI cooperation benchmarks research
+export const constructs = pgTable("constructs", {
+  id: varchar("id").primaryKey(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  institution: text("institution").notNull(),
+  discipline: text("discipline").notNull(),
+  email: text("email").notNull(),
+  construct: text("construct").notNull(),
+  whyImportant: text("why_important").notNull(),
+  howMeasuredInHumans: text("how_measured_in_humans").notNull(),
+  challengesInAI: text("challenges_in_ai").notNull(),
+  adaptingVsNovel: text("adapting_vs_novel").notNull(),
+  anythingElse: text("anything_else"),
+  citations: text("citations"),
+  rubricStrongPass: text("rubric_strong_pass"),
+  rubricPass: text("rubric_pass"),
+  rubricPartialPass: text("rubric_partial_pass"),
+  rubricFail: text("rubric_fail"),
+  rubricFreeResponse: text("rubric_free_response"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface Construct {
+  id: string;
+  firstName: string;
+  lastName: string;
+  institution: string;
+  discipline: string;
+  email: string;
+  construct: string;
+  whyImportant: string;
+  howMeasuredInHumans: string;
+  challengesInAI: string;
+  adaptingVsNovel: string;
+  anythingElse?: string;
+  citations?: string;
+  rubricStrongPass?: string;
+  rubricPass?: string;
+  rubricPartialPass?: string;
+  rubricFail?: string;
+  rubricFreeResponse?: string;
+  createdAt: string;
+}
+
+export const insertConstructSchema = z.object({
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
+  institution: z.string().min(1, "Institution is required"),
+  discipline: z.string().min(1, "Discipline/Area of expertise is required"),
+  email: z.string().email("Valid email is required"),
+  construct: z.string().min(10, "Please describe the construct in more detail"),
+  whyImportant: z.string().min(10, "Please explain why this is important"),
+  howMeasuredInHumans: z.string().min(10, "Please describe how this is measured in humans"),
+  challengesInAI: z.string().min(10, "Please describe the challenges"),
+  adaptingVsNovel: z.string().min(10, "Please provide your recommendation"),
+  anythingElse: z.string().optional(),
+  citations: z.string().optional(),
+  rubricStrongPass: z.string().optional(),
+  rubricPass: z.string().optional(),
+  rubricPartialPass: z.string().optional(),
+  rubricFail: z.string().optional(),
+  rubricFreeResponse: z.string().optional(),
+});
+
+export type InsertConstruct = z.infer<typeof insertConstructSchema>;

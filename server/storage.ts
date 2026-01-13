@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -141,6 +141,9 @@ export interface IStorage {
   // Benchmark Weights methods
   getBenchmarkWeights(): Promise<BenchmarkWeight[]>;
   updateBenchmarkWeight(testId: string, weight: number): Promise<BenchmarkWeight>;
+  // Construct Survey methods
+  getConstructs(): Promise<Construct[]>;
+  createConstruct(data: InsertConstruct): Promise<Construct>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -984,6 +987,78 @@ export class DatabaseStorage implements IStorage {
         updatedAt: result[0].updatedAt.toISOString(),
       };
     }
+  }
+
+  async getConstructs(): Promise<Construct[]> {
+    const result = await db.select().from(constructs).orderBy(desc(constructs.createdAt));
+    return result.map(row => ({
+      id: row.id,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      institution: row.institution,
+      discipline: row.discipline,
+      email: row.email,
+      construct: row.construct,
+      whyImportant: row.whyImportant,
+      howMeasuredInHumans: row.howMeasuredInHumans,
+      challengesInAI: row.challengesInAI,
+      adaptingVsNovel: row.adaptingVsNovel,
+      anythingElse: row.anythingElse || undefined,
+      citations: row.citations || undefined,
+      rubricStrongPass: row.rubricStrongPass || undefined,
+      rubricPass: row.rubricPass || undefined,
+      rubricPartialPass: row.rubricPartialPass || undefined,
+      rubricFail: row.rubricFail || undefined,
+      rubricFreeResponse: row.rubricFreeResponse || undefined,
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  async createConstruct(data: InsertConstruct): Promise<Construct> {
+    const id = randomUUID();
+    const result = await db.insert(constructs).values({
+      id,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      institution: data.institution,
+      discipline: data.discipline,
+      email: data.email,
+      construct: data.construct,
+      whyImportant: data.whyImportant,
+      howMeasuredInHumans: data.howMeasuredInHumans,
+      challengesInAI: data.challengesInAI,
+      adaptingVsNovel: data.adaptingVsNovel,
+      anythingElse: data.anythingElse || null,
+      citations: data.citations || null,
+      rubricStrongPass: data.rubricStrongPass || null,
+      rubricPass: data.rubricPass || null,
+      rubricPartialPass: data.rubricPartialPass || null,
+      rubricFail: data.rubricFail || null,
+      rubricFreeResponse: data.rubricFreeResponse || null,
+    }).returning();
+    
+    const row = result[0];
+    return {
+      id: row.id,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      institution: row.institution,
+      discipline: row.discipline,
+      email: row.email,
+      construct: row.construct,
+      whyImportant: row.whyImportant,
+      howMeasuredInHumans: row.howMeasuredInHumans,
+      challengesInAI: row.challengesInAI,
+      adaptingVsNovel: row.adaptingVsNovel,
+      anythingElse: row.anythingElse || undefined,
+      citations: row.citations || undefined,
+      rubricStrongPass: row.rubricStrongPass || undefined,
+      rubricPass: row.rubricPass || undefined,
+      rubricPartialPass: row.rubricPartialPass || undefined,
+      rubricFail: row.rubricFail || undefined,
+      rubricFreeResponse: row.rubricFreeResponse || undefined,
+      createdAt: row.createdAt.toISOString(),
+    };
   }
 }
 

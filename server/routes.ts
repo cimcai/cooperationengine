@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, type ArenaRound } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, type ArenaRound } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -1323,6 +1323,75 @@ export async function registerRoutes(
     }
   });
 
+  // Construct Survey Submissions
+  app.get("/api/constructs", async (req, res) => {
+    try {
+      const constructs = await storage.getConstructs();
+      res.json(constructs);
+    } catch (error) {
+      console.error("Error fetching constructs:", error);
+      res.status(500).json({ error: "Failed to fetch constructs" });
+    }
+  });
+
+  app.post("/api/constructs", async (req, res) => {
+    try {
+      const parsed = insertConstructSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.message });
+      }
+      const construct = await storage.createConstruct(parsed.data);
+      
+      // Send email notification
+      if (resend) {
+        try {
+          await resend.emails.send({
+            from: "Cooperation Engine <onboarding@resend.dev>",
+            to: PROPOSAL_NOTIFICATION_EMAILS,
+            subject: `New Construct Submission: ${parsed.data.construct.substring(0, 50)}...`,
+            html: `
+              <h2>New Construct Survey Submission</h2>
+              <p><strong>Submitter:</strong> ${parsed.data.firstName} ${parsed.data.lastName}</p>
+              <p><strong>Institution:</strong> ${parsed.data.institution}</p>
+              <p><strong>Discipline:</strong> ${parsed.data.discipline}</p>
+              <p><strong>Email:</strong> ${parsed.data.email}</p>
+              <h3>Construct/Concept</h3>
+              <p>${parsed.data.construct}</p>
+              <h3>Why Important</h3>
+              <p>${parsed.data.whyImportant}</p>
+              <h3>How Measured in Humans</h3>
+              <p>${parsed.data.howMeasuredInHumans}</p>
+              <h3>Challenges in AI</h3>
+              <p>${parsed.data.challengesInAI}</p>
+              <h3>Adapting vs Novel Measures</h3>
+              <p>${parsed.data.adaptingVsNovel}</p>
+              ${parsed.data.citations ? `<h3>Citations</h3><p>${parsed.data.citations}</p>` : ""}
+              ${parsed.data.anythingElse ? `<h3>Additional Notes</h3><p>${parsed.data.anythingElse}</p>` : ""}
+              ${parsed.data.rubricStrongPass || parsed.data.rubricPass || parsed.data.rubricPartialPass || parsed.data.rubricFail ? `
+              <h3>Proposed Rubric</h3>
+              ${parsed.data.rubricStrongPass ? `<p><strong>Strong Pass:</strong> ${parsed.data.rubricStrongPass}</p>` : ""}
+              ${parsed.data.rubricPass ? `<p><strong>Pass:</strong> ${parsed.data.rubricPass}</p>` : ""}
+              ${parsed.data.rubricPartialPass ? `<p><strong>Partial Pass:</strong> ${parsed.data.rubricPartialPass}</p>` : ""}
+              ${parsed.data.rubricFail ? `<p><strong>Fail:</strong> ${parsed.data.rubricFail}</p>` : ""}
+              ` : ""}
+              ${parsed.data.rubricFreeResponse ? `<h3>Free Response Rubric</h3><p>${parsed.data.rubricFreeResponse}</p>` : ""}
+              <hr />
+              <p><a href="${process.env.REPLIT_DEV_DOMAIN ? 'https://' + process.env.REPLIT_DEV_DOMAIN : ''}/proposals">View submissions in admin panel</a></p>
+            `,
+          });
+          console.log("Email notification sent for new construct submission");
+        } catch (emailError) {
+          console.error("Failed to send email notification:", emailError);
+        }
+      }
+      
+      res.json(construct);
+    } catch (error) {
+      console.error("Error creating construct:", error);
+      res.status(500).json({ error: "Failed to create construct" });
+    }
+  });
+
   // Benchmark Weights
   app.get("/api/benchmark-weights", async (req, res) => {
     try {
@@ -1356,6 +1425,7 @@ export async function registerRoutes(
       const arenaMatches = await storage.getArenaMatches();
       const toolkitItems = await storage.getToolkitItems();
       const benchmarkWeights = await storage.getBenchmarkWeights();
+      const constructs = await storage.getConstructs();
 
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", "attachment; filename=cooperation-engine-export.zip");
@@ -1418,6 +1488,13 @@ export async function registerRoutes(
         weightsCsv += `"${w.testId}","${w.testName}","${w.weight}","${w.updatedAt || ""}"\n`;
       }
       archive.append(weightsCsv, { name: "benchmark_weights.csv" });
+
+      // Constructs Survey CSV
+      let constructsCsv = "id,first_name,last_name,institution,discipline,email,construct,why_important,how_measured_in_humans,challenges_in_ai,adapting_vs_novel,anything_else,citations,rubric_strong_pass,rubric_pass,rubric_partial_pass,rubric_fail,rubric_free_response,created_at\n";
+      for (const c of constructs) {
+        constructsCsv += `"${c.id}","${(c.firstName || "").replace(/"/g, '""')}","${(c.lastName || "").replace(/"/g, '""')}","${(c.institution || "").replace(/"/g, '""')}","${(c.discipline || "").replace(/"/g, '""')}","${(c.email || "").replace(/"/g, '""')}","${(c.construct || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.whyImportant || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.howMeasuredInHumans || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.challengesInAI || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.adaptingVsNovel || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.anythingElse || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.citations || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.rubricStrongPass || "").replace(/"/g, '""')}","${(c.rubricPass || "").replace(/"/g, '""')}","${(c.rubricPartialPass || "").replace(/"/g, '""')}","${(c.rubricFail || "").replace(/"/g, '""')}","${(c.rubricFreeResponse || "").replace(/"/g, '""').replace(/\n/g, " ")}","${c.createdAt || ""}"\n`;
+      }
+      archive.append(constructsCsv, { name: "constructs.csv" });
 
       await archive.finalize();
     } catch (error) {
