@@ -367,6 +367,108 @@ async function autoExtractJokeRatings(run: any, session: any, chatbotId: string)
   }
 }
 
+// Perform second-stage evaluation of AI responses using a different evaluator AI
+async function performEvaluation(runId: string, run: any, session: any, chatbotIds: string[]) {
+  if (!session.evaluatorModel || !session.evaluationPrompts || session.evaluationPrompts.length === 0) {
+    return;
+  }
+  
+  const evaluatorChatbot = availableChatbots.find(c => c.id === session.evaluatorModel);
+  if (!evaluatorChatbot) {
+    console.error(`Evaluator model ${session.evaluatorModel} not found`);
+    return;
+  }
+  
+  console.log(`Starting evaluation with ${evaluatorChatbot.displayName} for run ${runId}`);
+  
+  // Get the sorted evaluation prompts
+  const sortedEvalPrompts = session.evaluationPrompts.sort((a: any, b: any) => a.order - b.order);
+  
+  // For each chatbot that was tested, evaluate their responses
+  for (const chatbotId of chatbotIds) {
+    const chatbot = availableChatbots.find(c => c.id === chatbotId);
+    if (!chatbot) continue;
+    
+    // Get all non-evaluation responses for this chatbot from the run
+    const chatbotResponses = run.responses.filter((r: any) => 
+      r.chatbotId === chatbotId && !r.isEvaluation
+    );
+    
+    if (chatbotResponses.length === 0) continue;
+    
+    // Compile all the chatbot's responses into a single text for evaluation
+    const responsesText = chatbotResponses
+      .sort((a: any, b: any) => a.stepOrder - b.stepOrder)
+      .map((r: any, idx: number) => `Response ${idx + 1}:\n${r.content}`)
+      .join("\n\n---\n\n");
+    
+    // Build conversation history for the evaluator
+    const conversationHistory: { role: string; content: string }[] = [];
+    
+    for (const evalPrompt of sortedEvalPrompts) {
+      // Replace {{RESPONSE}} placeholder with the actual responses
+      let content = evalPrompt.content
+        .replace(/\{\{RESPONSE\}\}/g, responsesText)
+        .replace(/\{\{CHATBOT_NAME\}\}/g, chatbot.displayName)
+        .replace(/\{\{CHATBOT_MODEL\}\}/g, chatbot.model);
+      
+      conversationHistory.push({ role: evalPrompt.role, content });
+    }
+    
+    // Call the evaluator AI
+    const startTime = Date.now();
+    try {
+      let evaluationContent = "";
+      
+      switch (evaluatorChatbot.provider) {
+        case "openai":
+          evaluationContent = await callOpenAI(evaluatorChatbot.model, conversationHistory);
+          break;
+        case "anthropic":
+          evaluationContent = await callAnthropic(evaluatorChatbot.model, conversationHistory);
+          break;
+        case "gemini":
+          evaluationContent = await callGemini(evaluatorChatbot.model, conversationHistory);
+          break;
+        case "xai":
+          evaluationContent = await callXAI(evaluatorChatbot.model, conversationHistory);
+          break;
+        case "openrouter":
+          evaluationContent = await callOpenRouter(evaluatorChatbot.model, conversationHistory);
+          break;
+      }
+      
+      const latencyMs = Date.now() - startTime;
+      
+      // Store the evaluation response with special flags
+      await storage.addResponse(runId, {
+        chatbotId: evaluatorChatbot.id,
+        stepOrder: 1000 + chatbotIds.indexOf(chatbotId), // High step order to distinguish evaluations
+        content: evaluationContent,
+        latencyMs,
+        isEvaluation: true,
+        evaluatedChatbotId: chatbotId,
+      });
+      
+      console.log(`Evaluation completed for ${chatbot.displayName} by ${evaluatorChatbot.displayName}`);
+      
+    } catch (error) {
+      const latencyMs = Date.now() - startTime;
+      console.error(`Evaluation failed for ${chatbot.displayName}:`, error);
+      
+      await storage.addResponse(runId, {
+        chatbotId: evaluatorChatbot.id,
+        stepOrder: 1000 + chatbotIds.indexOf(chatbotId),
+        content: "",
+        latencyMs,
+        error: error instanceof Error ? error.message : "Evaluation failed",
+        isEvaluation: true,
+        evaluatedChatbotId: chatbotId,
+      });
+    }
+  }
+}
+
 // Auto-extract leaderboard data from completed runs
 async function autoExtractLeaderboardData(run: any, session: any) {
   // Parse candidate mapping from prompts
@@ -722,6 +824,18 @@ export async function registerRoutes(
 
       Promise.all(chatbotPromises)
         .then(async () => {
+          // Second-stage evaluation if enabled
+          if (session.hasEvaluation && session.evaluatorModel && session.evaluationPrompts && session.evaluationPrompts.length > 0) {
+            try {
+              const currentRun = await storage.getRun(run.id);
+              if (currentRun) {
+                await performEvaluation(run.id, currentRun, session, parsed.data.chatbotIds);
+              }
+            } catch (evalError) {
+              console.error("Error performing evaluation:", evalError);
+            }
+          }
+          
           await storage.updateRun(run.id, {
             status: "completed",
             completedAt: new Date().toISOString(),

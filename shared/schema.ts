@@ -11,6 +11,14 @@ export const sessions = pgTable("sessions", {
     role: "user" | "assistant" | "system";
     content: string;
   }[]>(),
+  hasEvaluation: integer("has_evaluation").default(0).$type<0 | 1>(),
+  evaluatorModel: varchar("evaluator_model"),
+  evaluationPrompts: jsonb("evaluation_prompts").$type<{
+    id: string;
+    order: number;
+    role: "user" | "system";
+    content: string;
+  }[]>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -27,6 +35,8 @@ export const runs = pgTable("runs", {
     content: string;
     latencyMs: number;
     error?: string;
+    isEvaluation?: boolean;
+    evaluatedChatbotId?: string;
   }[]>(),
 });
 
@@ -104,11 +114,22 @@ export interface PromptStep {
   content: string;
 }
 
+// Evaluation prompt step (subset of PromptStep, no assistant role)
+export interface EvaluationPromptStep {
+  id: string;
+  order: number;
+  role: "user" | "system";
+  content: string;
+}
+
 // Session for a cooperation run
 export interface Session {
   id: string;
   title: string;
   prompts: PromptStep[];
+  hasEvaluation?: boolean;
+  evaluatorModel?: string;
+  evaluationPrompts?: EvaluationPromptStep[];
   createdAt: string;
 }
 
@@ -119,6 +140,8 @@ export interface ChatbotResponse {
   content: string;
   latencyMs: number;
   error?: string;
+  isEvaluation?: boolean;
+  evaluatedChatbotId?: string;
 }
 
 // A run targeting multiple chatbots
@@ -141,6 +164,14 @@ export const insertSessionSchema = z.object({
     role: z.enum(["user", "assistant", "system"]),
     content: z.string().min(1, "Content is required"),
   })).min(1, "At least one prompt is required"),
+  hasEvaluation: z.boolean().optional(),
+  evaluatorModel: z.string().optional(),
+  evaluationPrompts: z.array(z.object({
+    id: z.string(),
+    order: z.number(),
+    role: z.enum(["user", "system"]),
+    content: z.string().min(1, "Content is required"),
+  })).optional(),
 });
 
 export const insertRunSchema = z.object({
