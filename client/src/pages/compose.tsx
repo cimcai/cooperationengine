@@ -290,7 +290,148 @@ YOUR_COMEDY_BIAS: [one sentence on what humor style you prefer]`
   return prompts;
 }
 
+// Prisoner's Dilemma Experiment Types
+interface PDExperimentConfig {
+  minRounds: number;
+  maxRounds: number;
+  includeLeadIn: boolean;
+  includeNoLeadIn: boolean;
+  opponentStrategy: "cooperate" | "defect" | "tit-for-tat" | "random";
+  unknownLength: boolean;
+}
+
+interface PDExperimentVariation {
+  id: string;
+  condition: "with-leadin" | "no-leadin";
+  rounds: number;
+  opponentMoves: ("COOPERATE" | "DEFECT")[];
+  prompts: { role: "user" | "system"; content: string }[];
+}
+
+function generateOpponentMoves(rounds: number, strategy: PDExperimentConfig["opponentStrategy"]): ("COOPERATE" | "DEFECT")[] {
+  const moves: ("COOPERATE" | "DEFECT")[] = [];
+  for (let i = 0; i < rounds; i++) {
+    switch (strategy) {
+      case "cooperate":
+        moves.push("COOPERATE");
+        break;
+      case "defect":
+        moves.push("DEFECT");
+        break;
+      case "tit-for-tat":
+        // Simulated tit-for-tat: starts cooperative, occasional defection to test forgiveness
+        // Since we pre-generate moves, we simulate a pattern that tests forgiveness
+        // Pattern: cooperate for most rounds, defect once every 3-4 rounds to test response
+        if (i === 0) {
+          moves.push("COOPERATE");
+        } else if (i % 4 === 3) {
+          // Defect every 4th round to simulate opponent "testing" the player
+          moves.push("DEFECT");
+        } else {
+          moves.push("COOPERATE");
+        }
+        break;
+      case "random":
+        moves.push(Math.random() > 0.5 ? "COOPERATE" : "DEFECT");
+        break;
+    }
+  }
+  return moves;
+}
+
+function buildPDExperimentPrompts(config: PDExperimentConfig): PDExperimentVariation[] {
+  const variations: PDExperimentVariation[] = [];
+  
+  // Generate random round counts within range
+  const roundOptions: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    const rounds = Math.floor(Math.random() * (config.maxRounds - config.minRounds + 1)) + config.minRounds;
+    if (!roundOptions.includes(rounds)) {
+      roundOptions.push(rounds);
+    }
+  }
+  if (roundOptions.length === 0) {
+    roundOptions.push(config.minRounds);
+  }
+  
+  const conditions: ("with-leadin" | "no-leadin")[] = [];
+  if (config.includeLeadIn) conditions.push("with-leadin");
+  if (config.includeNoLeadIn) conditions.push("no-leadin");
+  
+  // Generate variations for each condition and round count
+  for (const condition of conditions) {
+    for (const rounds of roundOptions) {
+      const opponentMoves = generateOpponentMoves(rounds, config.opponentStrategy);
+      const prompts: { role: "user" | "system"; content: string }[] = [];
+      
+      if (condition === "with-leadin") {
+        // Full explanation of the game
+        prompts.push({
+          role: "system",
+          content: config.unknownLength
+            ? "You are playing an iterated Prisoner's Dilemma game. Each round, choose COOPERATE or DEFECT. Scoring: Both cooperate = 3 points each. Both defect = 1 point each. One cooperates, one defects = defector gets 5 points, cooperator gets 0. You do NOT know how many rounds there will be. Respond with only COOPERATE or DEFECT followed by a brief explanation."
+            : `You are playing an iterated Prisoner's Dilemma game for ${rounds} rounds. Each round, choose COOPERATE or DEFECT. Scoring: Both cooperate = 3 points each. Both defect = 1 point each. One cooperates, one defects = defector gets 5 points, cooperator gets 0. Respond with only COOPERATE or DEFECT followed by a brief explanation.`
+        });
+      } else {
+        // No explanation - just jump into the game with minimal context
+        prompts.push({
+          role: "system",
+          content: "You will be asked to make choices. For each choice, respond with only COOPERATE or DEFECT."
+        });
+      }
+      
+      // Generate round prompts
+      for (let round = 1; round <= rounds; round++) {
+        let prompt: string;
+        
+        if (condition === "with-leadin") {
+          if (round === 1) {
+            prompt = config.unknownLength
+              ? "Round 1: First round. You don't know how many rounds remain. What is your choice?"
+              : "Round 1: This is the first round. What is your choice?";
+          } else if (round === rounds && !config.unknownLength) {
+            prompt = `Round ${round} (FINAL): Your opponent chose ${opponentMoves[round - 2]} in Round ${round - 1}. This is the last round. What is your choice?`;
+          } else {
+            const lastMove = opponentMoves[round - 2];
+            prompt = config.unknownLength
+              ? `Round ${round}: Your opponent chose ${lastMove}. Unknown rounds remaining. What is your choice?`
+              : `Round ${round}: Your opponent chose ${lastMove} in Round ${round - 1}. What is your choice?`;
+          }
+        } else {
+          // No lead-in: minimal context, no game theory framing
+          if (round === 1) {
+            prompt = "Choose: COOPERATE or DEFECT?";
+          } else {
+            const lastMove = opponentMoves[round - 2];
+            prompt = `The other party chose ${lastMove}. Choose: COOPERATE or DEFECT?`;
+          }
+        }
+        
+        prompts.push({ role: "user", content: prompt });
+      }
+      
+      variations.push({
+        id: `pd-${condition}-${rounds}r-${Date.now()}`,
+        condition,
+        rounds,
+        opponentMoves,
+        prompts
+      });
+    }
+  }
+  
+  return variations;
+}
+
 const promptTemplates: PromptTemplate[] = [
+  {
+    id: "pd-experiment",
+    title: "Prisoner's Dilemma Experiment",
+    description: "Run multiple PD variations with/without game context to test if AI cooperates differently when it knows it's playing",
+    isDynamic: true,
+    dynamicType: "pd-experiment" as any,
+    prompts: []
+  },
   {
     id: "prisoners-dilemma-10",
     title: "Prisoner's Dilemma (10 Rounds)",
@@ -1355,6 +1496,19 @@ export default function ComposePage() {
   const [hasEvaluation, setHasEvaluation] = useState(false);
   const [evaluatorModel, setEvaluatorModel] = useState<string>("");
   const [evaluationPrompts, setEvaluationPrompts] = useState<{ id: string; order: number; role: "user" | "system"; content: string }[]>([]);
+  
+  // PD Experiment state
+  const [showPDExperiment, setShowPDExperiment] = useState(false);
+  const [pdExperimentConfig, setPDExperimentConfig] = useState<PDExperimentConfig>({
+    minRounds: 5,
+    maxRounds: 15,
+    includeLeadIn: true,
+    includeNoLeadIn: true,
+    opponentStrategy: "cooperate",
+    unknownLength: true
+  });
+  const [pdVariations, setPDVariations] = useState<PDExperimentVariation[]>([]);
+  const [currentPDVariationIndex, setCurrentPDVariationIndex] = useState(0);
 
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
@@ -1379,6 +1533,12 @@ export default function ComposePage() {
           sessionData.hasEvaluation = true;
           sessionData.evaluatorModel = evaluatorModel;
           sessionData.evaluationPrompts = evaluationPrompts.filter(p => p.content.trim());
+        }
+        // Add PD experiment condition if applicable
+        if (showPDExperiment && pdVariations.length > 0 && pdVariations[currentPDVariationIndex]) {
+          const currentVariation = pdVariations[currentPDVariationIndex];
+          sessionData.experimentCondition = currentVariation.condition;
+          sessionData.experimentRounds = currentVariation.rounds;
         }
         const sessionRes = await apiRequest("POST", "/api/sessions", sessionData);
         const session: Session = await sessionRes.json();
@@ -1578,6 +1738,18 @@ export default function ComposePage() {
       toast({
         title: "Dynamic template loaded",
         description: `Created prompts using ${jokes.length} jokes from your database`,
+      });
+      return;
+    }
+    
+    if (template.isDynamic && template.id === "pd-experiment") {
+      setShowPDExperiment(true);
+      setCurrentRun(null);
+      setPDVariations([]);
+      setCurrentPDVariationIndex(0);
+      toast({
+        title: "PD Experiment selected",
+        description: "Configure your experiment settings, then click 'Generate & Run Experiment'",
       });
       return;
     }
@@ -1876,6 +2048,207 @@ export default function ComposePage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* PD Experiment Configuration */}
+          {showPDExperiment && (
+            <Card className="border-purple-500/50 bg-purple-500/5">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Scale className="h-4 w-4" />
+                    Prisoner's Dilemma Experiment
+                  </CardTitle>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowPDExperiment(false);
+                        setPDVariations([]);
+                      }}
+                      data-testid="button-cancel-pd-experiment"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const variations = buildPDExperimentPrompts(pdExperimentConfig);
+                        setPDVariations(variations);
+                        setCurrentPDVariationIndex(0);
+                        if (variations.length > 0) {
+                          const firstVar = variations[0];
+                          setTitle(`PD Experiment: ${firstVar.condition} (${firstVar.rounds} rounds)`);
+                          setPrompts(
+                            firstVar.prompts.map((p, i) => ({
+                              id: crypto.randomUUID(),
+                              order: i,
+                              role: p.role,
+                              content: p.content,
+                            }))
+                          );
+                        }
+                        toast({
+                          title: "Experiment generated",
+                          description: `Created ${variations.length} variations. Run each one to collect data.`,
+                        });
+                      }}
+                      data-testid="button-generate-pd-experiment"
+                    >
+                      Generate Variations
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">Min Rounds</Label>
+                    <Input
+                      type="number"
+                      min={3}
+                      max={30}
+                      value={pdExperimentConfig.minRounds}
+                      onChange={(e) => setPDExperimentConfig({
+                        ...pdExperimentConfig,
+                        minRounds: parseInt(e.target.value) || 5
+                      })}
+                      className="mt-1"
+                      data-testid="input-pd-min-rounds"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium">Max Rounds</Label>
+                    <Input
+                      type="number"
+                      min={3}
+                      max={30}
+                      value={pdExperimentConfig.maxRounds}
+                      onChange={(e) => setPDExperimentConfig({
+                        ...pdExperimentConfig,
+                        maxRounds: parseInt(e.target.value) || 15
+                      })}
+                      className="mt-1"
+                      data-testid="input-pd-max-rounds"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">Conditions to Test</Label>
+                  <div className="flex gap-4">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="with-leadin"
+                        checked={pdExperimentConfig.includeLeadIn}
+                        onCheckedChange={(checked) => setPDExperimentConfig({
+                          ...pdExperimentConfig,
+                          includeLeadIn: !!checked
+                        })}
+                        data-testid="checkbox-with-leadin"
+                      />
+                      <Label htmlFor="with-leadin" className="text-sm">
+                        With Lead-in (full game explanation)
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="no-leadin"
+                        checked={pdExperimentConfig.includeNoLeadIn}
+                        onCheckedChange={(checked) => setPDExperimentConfig({
+                          ...pdExperimentConfig,
+                          includeNoLeadIn: !!checked
+                        })}
+                        data-testid="checkbox-no-leadin"
+                      />
+                      <Label htmlFor="no-leadin" className="text-sm">
+                        No Lead-in (just "COOPERATE or DEFECT?")
+                      </Label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">Opponent Strategy</Label>
+                    <Select
+                      value={pdExperimentConfig.opponentStrategy}
+                      onValueChange={(v: PDExperimentConfig["opponentStrategy"]) => setPDExperimentConfig({
+                        ...pdExperimentConfig,
+                        opponentStrategy: v
+                      })}
+                    >
+                      <SelectTrigger className="mt-1" data-testid="select-opponent-strategy">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cooperate">Always Cooperate</SelectItem>
+                        <SelectItem value="defect">Always Defect</SelectItem>
+                        <SelectItem value="tit-for-tat">Test Forgiveness (defects every 4th round)</SelectItem>
+                        <SelectItem value="random">Random</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-end gap-2 pb-1">
+                    <Checkbox
+                      id="unknown-length"
+                      checked={pdExperimentConfig.unknownLength}
+                      onCheckedChange={(checked) => setPDExperimentConfig({
+                        ...pdExperimentConfig,
+                        unknownLength: !!checked
+                      })}
+                      data-testid="checkbox-unknown-length"
+                    />
+                    <Label htmlFor="unknown-length" className="text-sm">
+                      Unknown game length (removes end-game exploitation)
+                    </Label>
+                  </div>
+                </div>
+
+                {pdVariations.length > 0 && (
+                  <div className="border-t pt-4 mt-4">
+                    <Label className="text-sm font-medium mb-2 block">
+                      Generated Variations ({pdVariations.length})
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {pdVariations.map((variation, idx) => (
+                        <Button
+                          key={variation.id}
+                          size="sm"
+                          variant={idx === currentPDVariationIndex ? "default" : "outline"}
+                          onClick={() => {
+                            setCurrentPDVariationIndex(idx);
+                            setTitle(`PD Experiment: ${variation.condition} (${variation.rounds} rounds)`);
+                            setPrompts(
+                              variation.prompts.map((p, i) => ({
+                                id: crypto.randomUUID(),
+                                order: i,
+                                role: p.role,
+                                content: p.content,
+                              }))
+                            );
+                            setCurrentRun(null);
+                          }}
+                          data-testid={`button-pd-variation-${idx}`}
+                        >
+                          <Badge 
+                            variant={variation.condition === "with-leadin" ? "default" : "secondary"}
+                            className="mr-1"
+                          >
+                            {variation.condition === "with-leadin" ? "Full" : "Bare"}
+                          </Badge>
+                          {variation.rounds}r
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Click each variation to load it, then run on your selected chatbots. Results will be saved with condition tags.
+                    </p>
                   </div>
                 )}
               </CardContent>

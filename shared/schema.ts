@@ -19,6 +19,8 @@ export const sessions = pgTable("sessions", {
     role: "user" | "system";
     content: string;
   }[]>(),
+  experimentCondition: varchar("experiment_condition"),
+  experimentRounds: integer("experiment_rounds"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -130,6 +132,8 @@ export interface Session {
   hasEvaluation?: boolean;
   evaluatorModel?: string;
   evaluationPrompts?: EvaluationPromptStep[];
+  experimentCondition?: string;
+  experimentRounds?: number;
   createdAt: string;
 }
 
@@ -172,6 +176,8 @@ export const insertSessionSchema = z.object({
     role: z.enum(["user", "system"]),
     content: z.string().min(1, "Content is required"),
   })).optional(),
+  experimentCondition: z.string().optional(),
+  experimentRounds: z.number().optional(),
 });
 
 export const insertRunSchema = z.object({

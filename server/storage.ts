@@ -151,6 +151,11 @@ function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
     id: row.id,
     title: row.title,
     prompts: row.prompts || [],
+    hasEvaluation: row.hasEvaluation === 1,
+    evaluatorModel: row.evaluatorModel || undefined,
+    evaluationPrompts: row.evaluationPrompts || undefined,
+    experimentCondition: row.experimentCondition || undefined,
+    experimentRounds: row.experimentRounds || undefined,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -282,13 +287,23 @@ export class DatabaseStorage implements IStorage {
       id,
       title: data.title,
       prompts: data.prompts,
+      hasEvaluation: data.hasEvaluation ? 1 : 0,
+      evaluatorModel: data.evaluatorModel || null,
+      evaluationPrompts: data.evaluationPrompts || null,
+      experimentCondition: data.experimentCondition || null,
+      experimentRounds: data.experimentRounds || null,
     }).returning();
     return dbSessionToSession(result[0]);
   }
 
   async updateSession(id: string, data: Partial<InsertSession>): Promise<Session | undefined> {
+    // Convert boolean hasEvaluation to 0/1 for database
+    const dbData: Record<string, unknown> = { ...data };
+    if (typeof data.hasEvaluation === 'boolean') {
+      dbData.hasEvaluation = data.hasEvaluation ? 1 : 0;
+    }
     const result = await db.update(sessions)
-      .set(data)
+      .set(dbData)
       .where(eq(sessions.id, id))
       .returning();
     return result[0] ? dbSessionToSession(result[0]) : undefined;
