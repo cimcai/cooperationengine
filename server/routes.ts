@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, type ArenaRound } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, type ArenaRound } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -1532,6 +1532,66 @@ export async function registerRoutes(
   });
 
   // Export all research data as ZIP of CSVs
+  // Physiological data routes
+  app.post("/api/sessions/:id/physio", async (req, res) => {
+    try {
+      const sessionId = req.params.id;
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const parsed = insertPhysioBatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid data", details: parsed.error.errors });
+      }
+
+      const count = await storage.createPhysioBatch(sessionId, parsed.data);
+      res.json({ inserted: count, sessionId, participantId: parsed.data.participantId });
+    } catch (error) {
+      console.error("Failed to insert physio data:", error);
+      res.status(500).json({ error: "Failed to insert physiological data" });
+    }
+  });
+
+  app.get("/api/sessions/:id/physio", async (req, res) => {
+    try {
+      const sessionId = req.params.id;
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const opts: { participantId?: string; fromMs?: number; toMs?: number } = {};
+      if (typeof req.query.participantId === "string") {
+        opts.participantId = req.query.participantId;
+      }
+      if (typeof req.query.from === "string") {
+        opts.fromMs = parseInt(req.query.from, 10);
+      }
+      if (typeof req.query.to === "string") {
+        opts.toMs = parseInt(req.query.to, 10);
+      }
+
+      const data = await storage.getPhysioBySession(sessionId, opts);
+      res.json(data);
+    } catch (error) {
+      console.error("Failed to fetch physio data:", error);
+      res.status(500).json({ error: "Failed to fetch physiological data" });
+    }
+  });
+
+  app.delete("/api/sessions/:id/physio", async (req, res) => {
+    try {
+      const sessionId = req.params.id;
+      await storage.deletePhysioBySession(sessionId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete physio data:", error);
+      res.status(500).json({ error: "Failed to delete physiological data" });
+    }
+  });
+
   app.get("/api/export", async (req, res) => {
     try {
       const sessions = await storage.getSessions();

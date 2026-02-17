@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, sessions, runs, arenaMatches, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -144,6 +144,10 @@ export interface IStorage {
   // Construct Survey methods
   getConstructs(): Promise<Construct[]>;
   createConstruct(data: InsertConstruct): Promise<Construct>;
+  // Physiological data methods
+  createPhysioBatch(sessionId: string, data: InsertPhysioBatch): Promise<number>;
+  getPhysioBySession(sessionId: string, opts?: { participantId?: string; fromMs?: number; toMs?: number }): Promise<PhysioDataPoint[]>;
+  deletePhysioBySession(sessionId: string): Promise<void>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -1074,6 +1078,52 @@ export class DatabaseStorage implements IStorage {
       rubricFreeResponse: row.rubricFreeResponse || undefined,
       createdAt: row.createdAt.toISOString(),
     };
+  }
+  // Physiological data methods
+  async createPhysioBatch(sessionId: string, data: InsertPhysioBatch): Promise<number> {
+    const values = data.samples.map(sample => ({
+      id: randomUUID(),
+      sessionId,
+      participantId: data.participantId,
+      timestampMs: new Date(sample.timestampMs),
+      signals: sample.signals,
+    }));
+
+    if (values.length > 0) {
+      await db.insert(physioData).values(values);
+    }
+    return values.length;
+  }
+
+  async getPhysioBySession(sessionId: string, opts?: { participantId?: string; fromMs?: number; toMs?: number }): Promise<PhysioDataPoint[]> {
+    const conditions = [eq(physioData.sessionId, sessionId)];
+
+    if (opts?.participantId) {
+      conditions.push(eq(physioData.participantId, opts.participantId));
+    }
+    if (opts?.fromMs) {
+      conditions.push(sql`${physioData.timestampMs} >= ${new Date(opts.fromMs)}`);
+    }
+    if (opts?.toMs) {
+      conditions.push(sql`${physioData.timestampMs} <= ${new Date(opts.toMs)}`);
+    }
+
+    const result = await db.select().from(physioData)
+      .where(and(...conditions))
+      .orderBy(physioData.timestampMs);
+
+    return result.map(row => ({
+      id: row.id,
+      sessionId: row.sessionId,
+      participantId: row.participantId,
+      timestampMs: row.timestampMs.toISOString(),
+      signals: row.signals,
+      createdAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  async deletePhysioBySession(sessionId: string): Promise<void> {
+    await db.delete(physioData).where(eq(physioData.sessionId, sessionId));
   }
 }
 

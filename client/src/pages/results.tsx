@@ -15,10 +15,15 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
+  Activity,
+  Heart,
+  Thermometer,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useState, useMemo, useEffect } from "react";
-import type { Session, Run, Chatbot } from "@shared/schema";
+import type { Session, Run, Chatbot, PhysioDataPoint } from "@shared/schema";
 
 interface SessionResults {
   session: Session;
@@ -40,9 +45,18 @@ const providerColors: Record<string, string> = {
   xai: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
 };
 
+const signalLabels: Record<string, { label: string; unit: string; icon: typeof Activity }> = {
+  eda_microsiemens: { label: "EDA", unit: "\u00B5S", icon: Activity },
+  heart_rate_bpm: { label: "Heart Rate", unit: "bpm", icon: Heart },
+  hrv_rmssd_ms: { label: "HRV (RMSSD)", unit: "ms", icon: Activity },
+  respiratory_rate: { label: "Respiration", unit: "/min", icon: Activity },
+  skin_temperature_c: { label: "Skin Temp", unit: "\u00B0C", icon: Thermometer },
+};
+
 export default function ResultsPage() {
   const params = useParams<{ sessionId: string }>();
   const [selectedRuns, setSelectedRuns] = useState<string[]>([]);
+  const [showPhysio, setShowPhysio] = useState(false);
 
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
@@ -50,6 +64,11 @@ export default function ResultsPage() {
 
   const { data: results, isLoading } = useQuery<SessionResults>({
     queryKey: ["/api/sessions", params.sessionId, "results"],
+    enabled: !!params.sessionId,
+  });
+
+  const { data: physioData = [] } = useQuery<PhysioDataPoint[]>({
+    queryKey: ["/api/sessions", params.sessionId, "physio"],
     enabled: !!params.sessionId,
   });
 
@@ -306,6 +325,60 @@ export default function ResultsPage() {
               })}
             </div>
           </div>
+
+          {physioData.length > 0 && (
+            <div>
+              <button
+                className="flex items-center gap-2 text-sm font-medium w-full hover-elevate rounded-md p-1"
+                onClick={() => setShowPhysio(!showPhysio)}
+                data-testid="button-toggle-physio"
+              >
+                {showPhysio ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <Activity className="h-4 w-4" />
+                Physio Data ({physioData.length})
+              </button>
+              {showPhysio && (
+                <div className="mt-2 space-y-2">
+                  {(() => {
+                    const participants = Array.from(new Set(physioData.map(d => d.participantId)));
+                    const allSignalKeys = Array.from(new Set(physioData.flatMap(d => Object.keys(d.signals))));
+                    return participants.map(pid => {
+                      const pData = physioData.filter(d => d.participantId === pid);
+                      return (
+                        <Card key={pid} className="p-2">
+                          <p className="text-xs font-medium mb-1">{pid}</p>
+                          <p className="text-xs text-muted-foreground mb-2">{pData.length} samples</p>
+                          <div className="space-y-1">
+                            {allSignalKeys.map(key => {
+                              const values = pData
+                                .map(d => d.signals[key])
+                                .filter((v): v is number => v !== undefined);
+                              if (values.length === 0) return null;
+                              const avg = values.reduce((a, b) => a + b, 0) / values.length;
+                              const min = Math.min(...values);
+                              const max = Math.max(...values);
+                              const info = signalLabels[key] || { label: key, unit: "", icon: Activity };
+                              return (
+                                <div key={key} className="text-xs">
+                                  <span className="text-muted-foreground">{info.label}:</span>{" "}
+                                  <span className="font-mono">{avg.toFixed(1)}</span>
+                                  <span className="text-muted-foreground"> {info.unit} (</span>
+                                  <span className="font-mono">{min.toFixed(1)}</span>
+                                  <span className="text-muted-foreground">-</span>
+                                  <span className="font-mono">{max.toFixed(1)}</span>
+                                  <span className="text-muted-foreground">)</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </Card>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-auto p-4">

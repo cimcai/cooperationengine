@@ -118,45 +118,75 @@ Submit new benchmarks with structured prompt sequences, scoring criteria, and ex
 
 ---
 
-## Future Directions: Physiological Integration
+## Physiological Data API
 
-Cooperation Engine's structured, timestamped prompt/response sequences are designed to eventually correlate with real-time physiological data from human participants. This is not yet built, but the architecture anticipates it.
+Cooperation Engine accepts inbound physiological data from wearable sensors and biosignal devices, linked to benchmark sessions by timestamp. This enables mixed-methods research correlating AI responses with human biosignals.
 
-### Envisioned Modalities
+### API Endpoints
 
-| Signal | What It Would Measure | Relevant Benchmarks |
-|--------|----------------------|---------------------|
-| Skin Conductance (EDA/GSR) | Arousal, stress, emotional activation | Ethical dilemmas, safety probes, survival selection |
-| Vagal Tone (HRV/RSA) | Social engagement, emotional regulation | Fast Friends, prosociality, trust-building |
-| Heart Rate | Baseline arousal, stress response | All interactive benchmarks |
-| Facial EMG | Genuine vs. social smiling | Comedy rating |
-
-### Why Vagal Tone Matters
-
-Vagal tone (respiratory sinus arrhythmia / high-frequency HRV) is a biomarker for prosociality. Per Polyvagal Theory (Porges), higher vagal tone correlates with greater social engagement and cooperative behavior. Tracking vagal withdrawal during stressful AI decisions vs. vagal engagement during intimacy-building could reveal whether humans physiologically respond to AI interactions the same way they respond to human ones.
-
-### Proposed Data Format
+**POST** `/api/sessions/:sessionId/physio` -- Batch upload timestamped samples
 
 ```json
 {
-  "participant_id": "p_001",
-  "session_id": "sess_abc123",
-  "timestamp_ms": 1708200000000,
-  "signals": {
-    "eda_microsiemens": 4.2,
-    "heart_rate_bpm": 78,
-    "hrv_rmssd_ms": 42.5
-  }
+  "participantId": "p_001",
+  "samples": [
+    {
+      "timestampMs": 1708200000000,
+      "signals": {
+        "eda_microsiemens": 4.2,
+        "heart_rate_bpm": 78,
+        "hrv_rmssd_ms": 42.5,
+        "respiratory_rate": 14,
+        "skin_temperature_c": 33.1
+      }
+    }
+  ]
 }
 ```
 
-### Research Questions This Would Enable
+**GET** `/api/sessions/:sessionId/physio` -- Retrieve session physio data
+
+Query parameters: `participantId`, `from` (Unix ms), `to` (Unix ms)
+
+**DELETE** `/api/sessions/:sessionId/physio` -- Clear physio data for a session
+
+### Supported Signals
+
+Any numeric signal can be sent via the `signals` object. Common signals with built-in display labels:
+
+| Key | Description | Unit |
+|-----|-------------|------|
+| `eda_microsiemens` | Electrodermal activity (skin conductance) | uS |
+| `heart_rate_bpm` | Heart rate | bpm |
+| `hrv_rmssd_ms` | Heart rate variability (RMSSD) | ms |
+| `respiratory_rate` | Breathing rate | /min |
+| `skin_temperature_c` | Skin temperature | C |
+
+Custom signal keys are supported -- any key/value pair in the signals object will be stored and displayed.
+
+### Viewing Physio Data
+
+When a session has physiological data, the results page shows a collapsible "Physio Data" panel in the sidebar with per-participant signal summaries (mean, min, max).
+
+---
+
+## Future Directions
+
+### Deeper Physiological Analysis
+
+The current API stores and displays raw signals. Future work could include:
+
+- **Timeline correlation**: Aligning physio data timestamps with specific prompt/response moments to see how biosignals shift during survival selection rounds, safety boundary probes, or intimacy-building
+- **Vagal tone tracking**: RSA (respiratory sinus arrhythmia) as a prosociality biomarker per Polyvagal Theory (Porges) -- tracking vagal withdrawal during stressful AI decisions vs. engagement during intimacy
+- **Facial EMG integration**: Measuring genuine vs. social smiling during comedy rating
+- **Real-time streaming**: WebSocket-based live signal display during active benchmark sessions
+
+### Research Questions
 
 - Do humans show elevated skin conductance when an AI refuses to save itself?
 - Does vagal tone predict reported intimacy after Fast Friends with an AI?
 - Do AI safety violations produce measurable stress in human observers?
 - Does heart rate variability differ with cooperative vs. defecting AI?
-- Do comedy ratings correlate with facial EMG (genuine laughter vs. polite acknowledgment)?
 
 ---
 

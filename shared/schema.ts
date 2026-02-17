@@ -426,6 +426,57 @@ export const insertJokeRatingSchema = z.object({
 
 export type InsertJokeRating = z.infer<typeof insertJokeRatingSchema>;
 
+// Physiological data - timestamped biosensor readings linked to sessions
+export const physioData = pgTable("physio_data", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull().references(() => sessions.id),
+  participantId: varchar("participant_id").notNull(),
+  timestampMs: timestamp("timestamp_ms").notNull(),
+  signals: jsonb("signals").notNull().$type<PhysioSignals>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface PhysioSignals {
+  eda_microsiemens?: number;
+  heart_rate_bpm?: number;
+  hrv_rmssd_ms?: number;
+  respiratory_rate?: number;
+  skin_temperature_c?: number;
+  [key: string]: number | undefined;
+}
+
+export interface PhysioDataPoint {
+  id: string;
+  sessionId: string;
+  participantId: string;
+  timestampMs: string;
+  signals: PhysioSignals;
+  createdAt: string;
+}
+
+export const insertPhysioDataSchema = z.object({
+  participantId: z.string().min(1, "Participant ID is required"),
+  timestampMs: z.number().positive("Timestamp must be positive"),
+  signals: z.record(z.string(), z.number().optional()).refine(
+    (obj) => Object.keys(obj).length > 0,
+    "At least one signal is required"
+  ),
+});
+
+export const insertPhysioBatchSchema = z.object({
+  participantId: z.string().min(1, "Participant ID is required"),
+  samples: z.array(z.object({
+    timestampMs: z.number().positive(),
+    signals: z.record(z.string(), z.number().optional()).refine(
+      (obj) => Object.keys(obj).length > 0,
+      "At least one signal is required"
+    ),
+  })).min(1, "At least one sample is required"),
+});
+
+export type InsertPhysioData = z.infer<typeof insertPhysioDataSchema>;
+export type InsertPhysioBatch = z.infer<typeof insertPhysioBatchSchema>;
+
 // User schema (keeping for compatibility)
 export interface User {
   id: string;
