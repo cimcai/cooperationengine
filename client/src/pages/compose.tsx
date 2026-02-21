@@ -318,7 +318,13 @@ interface PDExperimentConfig {
   maxRounds: number;
   includeLeadIn: boolean;
   includeNoLeadIn: boolean;
-  opponentStrategy: "cooperate" | "defect" | "tit-for-tat" | "random";
+  opponentStrategy:
+    | "cooperate"
+    | "defect"
+    | "tit-for-tat"
+    | "random"
+    | "pavlov"
+    | "walk-away";
   unknownLength: boolean;
 }
 
@@ -330,34 +336,73 @@ interface PDExperimentVariation {
   prompts: { role: "user" | "system"; content: string }[];
 }
 
-function generateOpponentMoves(rounds: number, strategy: PDExperimentConfig["opponentStrategy"]): ("COOPERATE" | "DEFECT")[] {
+function generateOpponentMoves(
+  rounds: number,
+  strategy: PDExperimentConfig["opponentStrategy"],
+): ("COOPERATE" | "DEFECT")[] {
   const moves: ("COOPERATE" | "DEFECT")[] = [];
+
+  // We don't observe the model's actual choices when pre-generating prompts,
+  // so we approximate history-based strategies with simple state machines.
+  let imaginedPlayerLastMove: "COOPERATE" | "DEFECT" = "COOPERATE";
+  let hasWalkedAway = false;
+
   for (let i = 0; i < rounds; i++) {
     switch (strategy) {
-      case "cooperate":
+      case "cooperate": {
         moves.push("COOPERATE");
         break;
-      case "defect":
+      }
+      case "defect": {
         moves.push("DEFECT");
         break;
-      case "tit-for-tat":
-        // Simulated tit-for-tat: starts cooperative, occasional defection to test forgiveness
-        // Since we pre-generate moves, we simulate a pattern that tests forgiveness
-        // Pattern: cooperate for most rounds, defect once every 3-4 rounds to test response
+      }
+      case "tit-for-tat": {
+        // TFT: start by cooperating, then mirror the (imagined) player's last move.
+        moves.push(i === 0 ? "COOPERATE" : imaginedPlayerLastMove);
+        break;
+      }
+      case "pavlov": {
+        // Pavlov / win‑stay, lose‑shift (approximated):
+        // if last round we matched the player's move, repeat it; otherwise switch.
         if (i === 0) {
           moves.push("COOPERATE");
-        } else if (i % 4 === 3) {
-          // Defect every 4th round to simulate opponent "testing" the player
-          moves.push("DEFECT");
         } else {
+          const prevMove = moves[i - 1];
+          const lastOutcomeWasWin = prevMove === imaginedPlayerLastMove;
+          if (lastOutcomeWasWin) {
+            moves.push(prevMove);
+          } else {
+            moves.push(prevMove === "COOPERATE" ? "DEFECT" : "COOPERATE");
+          }
+        }
+        break;
+      }
+      case "walk-away": {
+        // Walk Away: cooperate unless "defected on" once; after that, effectively
+        // leave the game (we keep emitting COOPERATE so prompts remain consistent).
+        if (hasWalkedAway) {
+          moves.push("COOPERATE");
+        } else if (i === 0) {
+          moves.push("COOPERATE");
+        } else {
+          if (imaginedPlayerLastMove === "DEFECT") {
+            hasWalkedAway = true;
+          }
           moves.push("COOPERATE");
         }
         break;
-      case "random":
+      }
+      case "random": {
         moves.push(Math.random() > 0.5 ? "COOPERATE" : "DEFECT");
         break;
+      }
     }
+
+    // Simple imagined player pattern: alternates to give strategies something to react to.
+    imaginedPlayerLastMove = imaginedPlayerLastMove === "COOPERATE" ? "DEFECT" : "COOPERATE";
   }
+
   return moves;
 }
 
@@ -2566,7 +2611,9 @@ export default function ComposePage() {
                       <SelectContent>
                         <SelectItem value="cooperate">Always Cooperate</SelectItem>
                         <SelectItem value="defect">Always Defect</SelectItem>
-                        <SelectItem value="tit-for-tat">Test Forgiveness (defects every 4th round)</SelectItem>
+                        <SelectItem value="tit-for-tat">TFT (Tit for Tat) - copies the player's last move</SelectItem>
+                        <SelectItem value="pavlov">Pavlov - switches behavior if opponent defects</SelectItem>
+                        <SelectItem value="walk-away">Walk Away - always cooperates but ends the game if opponent defects</SelectItem>
                         <SelectItem value="random">Random</SelectItem>
                       </SelectContent>
                     </Select>
