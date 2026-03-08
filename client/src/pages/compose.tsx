@@ -1926,6 +1926,7 @@ export default function ComposePage() {
   const [selectedChatbots, setSelectedChatbots] = useState<string[]>([]);
   const [currentRun, setCurrentRun] = useState<Run | null>(null);
   const [batchCount, setBatchCount] = useState(1);
+  const [lastCustomRunCount, setLastCustomRunCount] = useState(1);
   const [batchRuns, setBatchRuns] = useState<Run[]>([]);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [showBatchStats, setShowBatchStats] = useState(false);
@@ -2939,21 +2940,47 @@ export default function ComposePage() {
                     <Repeat className="h-4 w-4 inline mr-1" />
                     Runs:
                   </Label>
-                  <Select 
-                    value={batchCount.toString()} 
-                    onValueChange={(v) => setBatchCount(parseInt(v))}
+                  <Select
+                    value={[5, 10, 15, 20, 25].includes(batchCount) ? batchCount.toString() : "custom"}
+                    onValueChange={(v) => {
+                      if (v === "custom") {
+                        setBatchCount(lastCustomRunCount);
+                      } else {
+                        setBatchCount(parseInt(v));
+                      }
+                    }}
                     disabled={runMutation.isPending}
                   >
                     <SelectTrigger className="w-20" data-testid="select-batch-count">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="1">1x</SelectItem>
-                      <SelectItem value="3">3x</SelectItem>
                       <SelectItem value="5">5x</SelectItem>
                       <SelectItem value="10">10x</SelectItem>
+                      <SelectItem value="15">15x</SelectItem>
+                      <SelectItem value="20">20x</SelectItem>
+                      <SelectItem value="25">25x</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
                     </SelectContent>
                   </Select>
+                  {![5, 10, 15, 20, 25].includes(batchCount) && (
+                    <Input
+                      type="number"
+                      min={1}
+                      max={40}
+                      value={batchCount}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!isNaN(v)) {
+                          const clamped = Math.min(40, Math.max(1, v));
+                          setBatchCount(clamped);
+                          setLastCustomRunCount(clamped);
+                        }
+                      }}
+                      className="w-16 h-9 text-sm"
+                      data-testid="input-batch-count-custom"
+                    />
+                  )}
                 </div>
                 <Button
                   onClick={() => runMutation.mutate()}
