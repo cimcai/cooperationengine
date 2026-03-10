@@ -2944,7 +2944,7 @@ export default function ComposePage() {
                     onValueChange={(v) => setBatchCount(parseInt(v))}
                     disabled={runMutation.isPending}
                   >
-                    <SelectTrigger className="w-20" data-testid="select-batch-count">
+                    <SelectTrigger className="w-24" data-testid="select-batch-count">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2952,6 +2952,8 @@ export default function ComposePage() {
                       <SelectItem value="3">3x</SelectItem>
                       <SelectItem value="5">5x</SelectItem>
                       <SelectItem value="10">10x</SelectItem>
+                      <SelectItem value="20">20x</SelectItem>
+                      <SelectItem value="50">50x</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
