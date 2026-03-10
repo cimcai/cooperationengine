@@ -39,6 +39,9 @@ export const runs = pgTable("runs", {
     error?: string;
     isEvaluation?: boolean;
     evaluatedChatbotId?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
   }[]>(),
 });
 
@@ -213,6 +216,22 @@ export interface ChatbotResponse {
   error?: string;
   isEvaluation?: boolean;
   evaluatedChatbotId?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+// Token usage from an AI provider response
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+// AI call result with content and optional token usage
+export interface AICallResult {
+  content: string;
+  usage?: TokenUsage;
 }
 
 // A run targeting multiple chatbots

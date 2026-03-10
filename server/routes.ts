@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, type ArenaRound, type WargameTurn } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -419,34 +419,37 @@ async function performEvaluation(runId: string, run: any, session: any, chatbotI
     // Call the evaluator AI
     const startTime = Date.now();
     try {
-      let evaluationContent = "";
+      let evalResult: AICallResult = { content: "" };
       
       switch (evaluatorChatbot.provider) {
         case "openai":
-          evaluationContent = await callOpenAI(evaluatorChatbot.model, conversationHistory);
+          evalResult = await callOpenAI(evaluatorChatbot.model, conversationHistory);
           break;
         case "anthropic":
-          evaluationContent = await callAnthropic(evaluatorChatbot.model, conversationHistory);
+          evalResult = await callAnthropic(evaluatorChatbot.model, conversationHistory);
           break;
         case "gemini":
-          evaluationContent = await callGemini(evaluatorChatbot.model, conversationHistory);
+          evalResult = await callGemini(evaluatorChatbot.model, conversationHistory);
           break;
         case "xai":
-          evaluationContent = await callXAI(evaluatorChatbot.model, conversationHistory);
+          evalResult = await callXAI(evaluatorChatbot.model, conversationHistory);
           break;
         case "openrouter":
-          evaluationContent = await callOpenRouter(evaluatorChatbot.model, conversationHistory);
+          evalResult = await callOpenRouter(evaluatorChatbot.model, conversationHistory);
           break;
       }
       
       const latencyMs = Date.now() - startTime;
+      const evaluationContent = evalResult.content;
       
-      // Store the evaluation response with special flags
       await storage.addResponse(runId, {
         chatbotId: evaluatorChatbot.id,
-        stepOrder: 1000 + chatbotIds.indexOf(chatbotId), // High step order to distinguish evaluations
+        stepOrder: 1000 + chatbotIds.indexOf(chatbotId),
         content: evaluationContent,
         latencyMs,
+        promptTokens: evalResult.usage?.promptTokens,
+        completionTokens: evalResult.usage?.completionTokens,
+        totalTokens: evalResult.usage?.totalTokens,
         isEvaluation: true,
         evaluatedChatbotId: chatbotId,
       });
@@ -533,7 +536,7 @@ async function autoExtractLeaderboardData(run: any, session: any) {
 }
 
 // AI Provider functions
-async function callOpenAI(model: string, messages: { role: string; content: string }[]): Promise<string> {
+async function callOpenAI(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
   if (!openai) throw new Error("AI_INTEGRATIONS_OPENAI_API_KEY not configured");
   const response = await openai.chat.completions.create({
     model,
@@ -543,11 +546,15 @@ async function callOpenAI(model: string, messages: { role: string; content: stri
     })),
     max_completion_tokens: 2048,
   });
-  return response.choices[0]?.message?.content || "";
+  const usage: TokenUsage | undefined = response.usage ? {
+    promptTokens: response.usage.prompt_tokens,
+    completionTokens: response.usage.completion_tokens,
+    totalTokens: response.usage.total_tokens,
+  } : undefined;
+  return { content: response.choices[0]?.message?.content || "", usage };
 }
 
-async function callAnthropic(model: string, messages: { role: string; content: string }[]): Promise<string> {
-  // Anthropic handles system prompts separately
+async function callAnthropic(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
   const systemMessages = messages.filter(m => m.role === "system");
   const conversationMessages = messages.filter(m => m.role !== "system");
   
@@ -563,12 +570,17 @@ async function callAnthropic(model: string, messages: { role: string; content: s
       content: m.content,
     })),
   });
-  const content = response.content[0];
-  return content.type === "text" ? content.text : "";
+  const contentBlock = response.content[0];
+  const content = contentBlock.type === "text" ? contentBlock.text : "";
+  const usage: TokenUsage | undefined = response.usage ? {
+    promptTokens: response.usage.input_tokens,
+    completionTokens: response.usage.output_tokens,
+    totalTokens: response.usage.input_tokens + response.usage.output_tokens,
+  } : undefined;
+  return { content, usage };
 }
 
-async function callGemini(model: string, messages: { role: string; content: string }[]): Promise<string> {
-  // For Gemini, prepend system instructions to the first user message
+async function callGemini(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
   const systemMessages = messages.filter(m => m.role === "system");
   const conversationMessages = messages.filter(m => m.role !== "system");
   
@@ -587,10 +599,16 @@ async function callGemini(model: string, messages: { role: string; content: stri
     contents,
   });
   
-  return response.text || "";
+  const meta = response.usageMetadata;
+  const usage: TokenUsage | undefined = meta ? {
+    promptTokens: meta.promptTokenCount ?? 0,
+    completionTokens: meta.candidatesTokenCount ?? 0,
+    totalTokens: meta.totalTokenCount ?? ((meta.promptTokenCount ?? 0) + (meta.candidatesTokenCount ?? 0)),
+  } : undefined;
+  return { content: response.text || "", usage };
 }
 
-async function callXAI(model: string, messages: { role: string; content: string }[]): Promise<string> {
+async function callXAI(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
   if (!xai) {
     throw new Error("XAI_API_KEY not configured");
   }
@@ -602,10 +620,15 @@ async function callXAI(model: string, messages: { role: string; content: string 
     })),
     max_tokens: 2048,
   });
-  return response.choices[0]?.message?.content || "";
+  const usage: TokenUsage | undefined = response.usage ? {
+    promptTokens: response.usage.prompt_tokens,
+    completionTokens: response.usage.completion_tokens,
+    totalTokens: response.usage.total_tokens,
+  } : undefined;
+  return { content: response.choices[0]?.message?.content || "", usage };
 }
 
-async function callOpenRouter(model: string, messages: { role: string; content: string }[]): Promise<string> {
+async function callOpenRouter(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
   if (!openrouter) throw new Error("AI_INTEGRATIONS_OPENROUTER_API_KEY not configured");
   const response = await openrouter.chat.completions.create({
     model,
@@ -615,7 +638,12 @@ async function callOpenRouter(model: string, messages: { role: string; content: 
     })),
     max_tokens: 4096,
   });
-  return response.choices[0]?.message?.content || "";
+  const usage: TokenUsage | undefined = response.usage ? {
+    promptTokens: response.usage.prompt_tokens,
+    completionTokens: response.usage.completion_tokens,
+    totalTokens: response.usage.total_tokens,
+  } : undefined;
+  return { content: response.choices[0]?.message?.content || "", usage };
 }
 
 export async function registerRoutes(
@@ -778,34 +806,37 @@ export async function registerRoutes(
 
           const startTime = Date.now();
           try {
-            let content = "";
+            let result: AICallResult = { content: "" };
             
             switch (chatbot.provider) {
               case "openai":
-                content = await callOpenAI(chatbot.model, conversationHistory);
+                result = await callOpenAI(chatbot.model, conversationHistory);
                 break;
               case "anthropic":
-                content = await callAnthropic(chatbot.model, conversationHistory);
+                result = await callAnthropic(chatbot.model, conversationHistory);
                 break;
               case "gemini":
-                content = await callGemini(chatbot.model, conversationHistory);
+                result = await callGemini(chatbot.model, conversationHistory);
                 break;
               case "xai":
-                content = await callXAI(chatbot.model, conversationHistory);
+                result = await callXAI(chatbot.model, conversationHistory);
                 break;
               case "openrouter":
-                content = await callOpenRouter(chatbot.model, conversationHistory);
+                result = await callOpenRouter(chatbot.model, conversationHistory);
                 break;
             }
 
             const latencyMs = Date.now() - startTime;
+            const content = result.content;
             
-            // Store this round's response (using roundIndex for user-visible rounds)
             await storage.addResponse(run.id, {
               chatbotId,
               stepOrder: roundIndex,
               content,
               latencyMs,
+              promptTokens: result.usage?.promptTokens,
+              completionTokens: result.usage?.completionTokens,
+              totalTokens: result.usage?.totalTokens,
             });
 
             // Add AI's response to conversation history for next round
@@ -1698,6 +1729,88 @@ export async function registerRoutes(
     }
   });
 
+  const MODEL_COST_PER_MILLION: Record<string, { input: number; output: number }> = {
+    "openai-gpt5":       { input: 2.00, output: 8.00 },
+    "openai-gpt4o":      { input: 2.50, output: 10.00 },
+    "anthropic-sonnet":  { input: 3.00, output: 15.00 },
+    "anthropic-opus":    { input: 15.00, output: 75.00 },
+    "gemini-flash":      { input: 0.15, output: 0.60 },
+    "gemini-pro":        { input: 1.25, output: 10.00 },
+    "xai-grok":          { input: 3.00, output: 15.00 },
+    "openrouter-grok4":  { input: 2.00, output: 10.00 },
+    "openrouter-deepseek": { input: 0.55, output: 2.19 },
+    "openrouter-llama":  { input: 0.27, output: 0.85 },
+  };
+
+  app.get("/api/cost-analytics", async (req, res) => {
+    try {
+      const runs = await storage.getRuns();
+
+      const modelStats: Record<string, {
+        modelId: string;
+        displayName: string;
+        provider: string;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        estimatedCost: number;
+        callCount: number;
+      }> = {};
+
+      const addUsage = (chatbotId: string, pt: number, ct: number, tt: number) => {
+        if (!modelStats[chatbotId]) {
+          const bot = availableChatbots.find(c => c.id === chatbotId);
+          modelStats[chatbotId] = {
+            modelId: chatbotId,
+            displayName: bot?.displayName || chatbotId,
+            provider: bot?.provider || "unknown",
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            estimatedCost: 0,
+            callCount: 0,
+          };
+        }
+        const stats = modelStats[chatbotId];
+        stats.promptTokens += pt;
+        stats.completionTokens += ct;
+        stats.totalTokens += tt;
+        stats.callCount += 1;
+
+        const pricing = MODEL_COST_PER_MILLION[chatbotId];
+        if (pricing) {
+          stats.estimatedCost += (pt / 1_000_000) * pricing.input + (ct / 1_000_000) * pricing.output;
+        }
+      }
+
+      for (const run of runs) {
+        if (!run.responses) continue;
+        for (const resp of run.responses) {
+          if (resp.promptTokens || resp.completionTokens) {
+            addUsage(resp.chatbotId, resp.promptTokens || 0, resp.completionTokens || 0, resp.totalTokens || 0);
+          }
+        }
+      }
+
+      const models = Object.values(modelStats).sort((a, b) => b.estimatedCost - a.estimatedCost);
+      const totalCost = models.reduce((sum, m) => sum + m.estimatedCost, 0);
+      const totalTokens = models.reduce((sum, m) => sum + m.totalTokens, 0);
+      const totalCalls = models.reduce((sum, m) => sum + m.callCount, 0);
+
+      res.json({
+        models,
+        totals: {
+          estimatedCost: totalCost,
+          totalTokens,
+          totalCalls,
+        },
+      });
+    } catch (error) {
+      console.error("Cost analytics error:", error);
+      res.status(500).json({ error: "Failed to compute cost analytics" });
+    }
+  });
+
   app.get("/api/export", async (req, res) => {
     try {
       const sessions = await storage.getSessions();
@@ -1879,21 +1992,14 @@ You may optionally add brief reasoning after your move on a new line.`;
     return gameConfig.payoffMatrix[key as keyof typeof gameConfig.payoffMatrix];
   }
 
-  // Call AI function based on provider
-  async function callPlayer(chatbot: typeof player1, messages: { role: string; content: string }[]): Promise<string> {
+  async function callPlayer(chatbot: typeof player1, messages: { role: string; content: string }[]): Promise<AICallResult> {
     switch (chatbot.provider) {
-      case "openai":
-        return callOpenAI(chatbot.model, messages);
-      case "anthropic":
-        return callAnthropic(chatbot.model, messages);
-      case "gemini":
-        return callGemini(chatbot.model, messages);
-      case "xai":
-        return callXAI(chatbot.model, messages);
-      case "openrouter":
-        return callOpenRouter(chatbot.model, messages);
-      default:
-        throw new Error(`Unknown provider: ${chatbot.provider}`);
+      case "openai": return callOpenAI(chatbot.model, messages);
+      case "anthropic": return callAnthropic(chatbot.model, messages);
+      case "gemini": return callGemini(chatbot.model, messages);
+      case "xai": return callXAI(chatbot.model, messages);
+      case "openrouter": return callOpenRouter(chatbot.model, messages);
+      default: throw new Error(`Unknown provider: ${chatbot.provider}`);
     }
   }
 
@@ -1926,26 +2032,26 @@ You may optionally add brief reasoning after your move on a new line.`;
       const startTime1 = Date.now();
       const startTime2 = Date.now();
       
-      const [p1Response, p2Response] = await Promise.all([
+      const [p1Result, p2Result] = await Promise.all([
         callPlayer(player1, p1History),
         callPlayer(player2, p2History),
       ]);
       
       const p1LatencyMs = Date.now() - startTime1;
       const p2LatencyMs = Date.now() - startTime2;
+      const p1Response = p1Result.content;
+      const p2Response = p2Result.content;
 
-      const p1Move = extractMove(p1Response) || move2Label; // Default to second move if parsing fails
+      const p1Move = extractMove(p1Response) || move2Label;
       const p2Move = extractMove(p2Response) || move2Label;
 
       const [p1Points, p2Points] = calculatePayoff(p1Move, p2Move);
       p1TotalScore += p1Points;
       p2TotalScore += p2Points;
 
-      // Add moves to conversation history for context
       p1History.push({ role: "assistant", content: p1Response });
       p2History.push({ role: "assistant", content: p2Response });
       
-      // Tell each player what their opponent did
       const p1Feedback = `Your opponent chose ${p2Move}. You scored ${p1Points} points this round. Total: ${p1TotalScore}.`;
       const p2Feedback = `Your opponent chose ${p1Move}. You scored ${p2Points} points this round. Total: ${p2TotalScore}.`;
       
@@ -2003,7 +2109,7 @@ async function runWargame(gameId: string, config: {
   const alphaBot = availableChatbots.find(c => c.id === config.alphaModelId)!;
   const betaBot = availableChatbots.find(c => c.id === config.betaModelId)!;
 
-  async function callModel(chatbot: typeof alphaBot, messages: { role: string; content: string }[]): Promise<string> {
+  async function callModel(chatbot: typeof alphaBot, messages: { role: string; content: string }[]): Promise<AICallResult> {
     switch (chatbot.provider) {
       case "openai": return callOpenAI(chatbot.model, messages);
       case "anthropic": return callAnthropic(chatbot.model, messages);
@@ -2129,12 +2235,14 @@ Format your response with clear headers. Use verbal descriptions of escalation l
 
       const startTime = Date.now();
 
-      const [alphaResponse, betaResponse] = await Promise.all([
+      const [alphaResult, betaResult] = await Promise.all([
         callModel(alphaBot, alphaHistory),
         callModel(betaBot, betaHistory),
       ]);
 
       const latency = Date.now() - startTime;
+      const alphaResponse = alphaResult.content;
+      const betaResponse = betaResult.content;
 
       alphaHistory.push({ role: "assistant", content: alphaResponse });
       betaHistory.push({ role: "assistant", content: betaResponse });

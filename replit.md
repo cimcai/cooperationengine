@@ -49,10 +49,17 @@ Preferred communication style: Simple, everyday language.
 - **Batch Mode**: "Run All Combinations" creates N*(N-1)/2 games across all enabled models
 - **Data Schema**: `WargameTurn` stores full responses + extracted public signals + private actions + latency per model
 
+### Cost Analytics
+- **Token Tracking**: All 5 AI wrapper functions (`callOpenAI`, `callAnthropic`, `callGemini`, `callXAI`, `callOpenRouter`) return `AICallResult` with content + token usage
+- **Storage**: Token counts (`promptTokens`, `completionTokens`, `totalTokens`) stored in the `ChatbotResponse` JSONB alongside content and latency
+- **Pricing**: Approximate per-model costs defined in `MODEL_COST_PER_MILLION` in `server/routes.ts`
+- **API**: `GET /api/cost-analytics` aggregates token usage from all runs and returns per-model breakdowns with estimated costs
+- **UI**: Cost Analytics card on the Settings page (`client/src/pages/settings.tsx`) showing totals and per-model breakdowns
+
 ### Key Design Decisions
 1. **Shared Schema Pattern**: Types defined in `shared/` directory are accessible to both client and server, ensuring type safety across the stack
 2. **In-Memory Storage Fallback**: The storage layer (`server/storage.ts`) uses in-memory storage with UUID-based IDs, designed to work with or without database connectivity
-3. **Modular AI Integration**: Each AI provider has dedicated client initialization and wrapper functions in `server/routes.ts`
+3. **Modular AI Integration**: Each AI provider has dedicated client initialization and wrapper functions in `server/routes.ts`, returning `AICallResult` with content + token usage
 4. **Component-Based UI**: Reusable UI components in `client/src/components/ui/` following Shadcn patterns
 5. **Configurable Template System**: Templates marked with `isConfigurable: true` support dynamic variable substitution via `{{PLACEHOLDER}}` syntax. Variables include candidates, equipment, AI systems, location, and context. The `resolveTemplateVariables()` function processes these before submission.
 

@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -18,6 +19,7 @@ const providerIcons: Record<string, React.ReactNode> = {
   anthropic: <span className="text-sm font-bold">A</span>,
   gemini: <SiGoogle className="h-5 w-5" />,
   xai: <span className="text-sm font-bold">X</span>,
+  openrouter: <span className="text-sm font-bold">OR</span>,
 };
 
 const providerColors: Record<string, string> = {
@@ -25,6 +27,7 @@ const providerColors: Record<string, string> = {
   anthropic: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   gemini: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   xai: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+  openrouter: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
 };
 
 const providerDescriptions: Record<string, string> = {
@@ -99,6 +102,30 @@ export default function SettingsPage() {
     setLocalWeights(defaults);
     setHasChanges(true);
   };
+
+  interface CostModelStats {
+    modelId: string;
+    displayName: string;
+    provider: string;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    estimatedCost: number;
+    callCount: number;
+  }
+
+  interface CostAnalytics {
+    models: CostModelStats[];
+    totals: {
+      estimatedCost: number;
+      totalTokens: number;
+      totalCalls: number;
+    };
+  }
+
+  const { data: costAnalytics, isLoading: costLoading } = useQuery<CostAnalytics>({
+    queryKey: ["/api/cost-analytics"],
+  });
 
   const groupedChatbots = chatbots.reduce((acc, chatbot) => {
     if (!acc[chatbot.provider]) {
@@ -177,6 +204,87 @@ export default function SettingsPage() {
                 {updateWeightMutation.isPending ? "Saving..." : "Save Weights"}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Cost Analytics
+            </CardTitle>
+            <CardDescription>
+              Estimated API costs based on token usage from all runs. Costs are approximate and based on published provider pricing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {costLoading ? (
+              <div className="text-sm text-muted-foreground" data-testid="text-cost-loading">Loading cost data...</div>
+            ) : !costAnalytics || costAnalytics.totals.totalCalls === 0 ? (
+              <div className="text-sm text-muted-foreground" data-testid="text-cost-empty">
+                No token usage data yet. Run some prompts to start tracking costs. Token tracking applies to new runs only.
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="p-4 bg-muted rounded-lg text-center" data-testid="stat-total-cost">
+                    <div className="text-2xl font-bold text-primary">
+                      ${costAnalytics.totals.estimatedCost.toFixed(4)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Estimated Total Cost</div>
+                  </div>
+                  <div className="p-4 bg-muted rounded-lg text-center" data-testid="stat-total-tokens">
+                    <div className="text-2xl font-bold">
+                      {costAnalytics.totals.totalTokens.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">Total Tokens</div>
+                  </div>
+                  <div className="p-4 bg-muted rounded-lg text-center" data-testid="stat-total-calls">
+                    <div className="text-2xl font-bold">
+                      {costAnalytics.totals.totalCalls.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">API Calls</div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-4">
+                  <h4 className="text-sm font-medium flex items-center gap-2">
+                    <Activity className="h-4 w-4" />
+                    Cost by Model
+                  </h4>
+                  {costAnalytics.models.map((model) => {
+                    const maxCost = costAnalytics.models[0]?.estimatedCost || 1;
+                    const pct = maxCost > 0 ? (model.estimatedCost / maxCost) * 100 : 0;
+                    return (
+                      <div key={model.modelId} className="space-y-2" data-testid={`cost-row-${model.modelId}`}>
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className={`flex h-6 w-6 items-center justify-center rounded text-xs ${providerColors[model.provider] || "bg-zinc-500/10 text-zinc-600"}`}>
+                              {providerIcons[model.provider] || <span className="text-xs font-bold">{model.provider[0]?.toUpperCase()}</span>}
+                            </div>
+                            <span className="font-medium">{model.displayName}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span>{model.callCount} calls</span>
+                            <span>{model.totalTokens.toLocaleString()} tokens</span>
+                            <Badge variant="outline" className="font-mono text-xs">
+                              ${model.estimatedCost.toFixed(4)}
+                            </Badge>
+                          </div>
+                        </div>
+                        <Progress value={pct} className="h-2" />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>In: {model.promptTokens.toLocaleString()} tokens</span>
+                          <span>Out: {model.completionTokens.toLocaleString()} tokens</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
