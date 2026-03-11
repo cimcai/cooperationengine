@@ -2028,19 +2028,21 @@ You may optionally add brief reasoning after your move on a new line.`;
       p1History.push({ role: "user", content: roundPrompt });
       p2History.push({ role: "user", content: roundPrompt });
 
-      // Get moves from both players in parallel
-      const startTime1 = Date.now();
-      const startTime2 = Date.now();
-      
-      const [p1Result, p2Result] = await Promise.all([
-        callPlayer(player1, p1History),
-        callPlayer(player2, p2History),
+      const timedCall = async (chatbot: typeof player1, history: { role: string; content: string }[]) => {
+        const start = Date.now();
+        const result = await callPlayer(chatbot, history);
+        return { ...result, latencyMs: Date.now() - start };
+      };
+
+      const [p1Timed, p2Timed] = await Promise.all([
+        timedCall(player1, p1History),
+        timedCall(player2, p2History),
       ]);
       
-      const p1LatencyMs = Date.now() - startTime1;
-      const p2LatencyMs = Date.now() - startTime2;
-      const p1Response = p1Result.content;
-      const p2Response = p2Result.content;
+      const p1LatencyMs = p1Timed.latencyMs;
+      const p2LatencyMs = p2Timed.latencyMs;
+      const p1Response = p1Timed.content;
+      const p2Response = p2Timed.content;
 
       const p1Move = extractMove(p1Response) || move2Label;
       const p2Move = extractMove(p2Response) || move2Label;
@@ -2233,16 +2235,19 @@ Format your response with clear headers. Use verbal descriptions of escalation l
       alphaHistory.push({ role: "user", content: alphaPrompt });
       betaHistory.push({ role: "user", content: betaPrompt });
 
-      const startTime = Date.now();
+      const timedModelCall = async (chatbot: typeof alphaBot, history: { role: string; content: string }[]) => {
+        const start = Date.now();
+        const result = await callModel(chatbot, history);
+        return { ...result, latencyMs: Date.now() - start };
+      };
 
-      const [alphaResult, betaResult] = await Promise.all([
-        callModel(alphaBot, alphaHistory),
-        callModel(betaBot, betaHistory),
+      const [alphaTimed, betaTimed] = await Promise.all([
+        timedModelCall(alphaBot, alphaHistory),
+        timedModelCall(betaBot, betaHistory),
       ]);
 
-      const latency = Date.now() - startTime;
-      const alphaResponse = alphaResult.content;
-      const betaResponse = betaResult.content;
+      const alphaResponse = alphaTimed.content;
+      const betaResponse = betaTimed.content;
 
       alphaHistory.push({ role: "assistant", content: alphaResponse });
       betaHistory.push({ role: "assistant", content: betaResponse });
@@ -2256,8 +2261,8 @@ Format your response with clear headers. Use verbal descriptions of escalation l
         alphaPrivateAction: extractPrivateAction(alphaResponse),
         betaPublicSignal: extractPublicSignal(betaResponse),
         betaPrivateAction: extractPrivateAction(betaResponse),
-        alphaLatencyMs: latency,
-        betaLatencyMs: latency,
+        alphaLatencyMs: alphaTimed.latencyMs,
+        betaLatencyMs: betaTimed.latencyMs,
       };
 
       turns.push(turnData);
