@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,9 @@ import {
   ChevronRight,
   BarChart3,
   Repeat,
-  Scale
+  Scale,
+  Save,
+  RotateCcw,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -2005,6 +2007,88 @@ export default function ComposePage() {
   const [pdVariations, setPDVariations] = useState<PDExperimentVariation[]>([]);
   const [currentPDVariationIndex, setCurrentPDVariationIndex] = useState(0);
 
+  // Draft autosave
+  const DRAFT_KEY = "compose_draft";
+  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
+  const [showDraftBanner, setShowDraftBanner] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstRender = useRef(true);
+
+  // Load draft on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft && draft.prompts && draft.savedAt && !draftRestored) {
+          setShowDraftBanner(true);
+        }
+      }
+    } catch {
+      // ignore corrupt draft
+    }
+  }, []);
+
+  const resumeDraft = () => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.title) setTitle(draft.title);
+      if (draft.prompts?.length) setPrompts(draft.prompts);
+      if (draft.selectedChatbots?.length) setSelectedChatbots(draft.selectedChatbots);
+      if (typeof draft.hasEvaluation === "boolean") setHasEvaluation(draft.hasEvaluation);
+      if (draft.evaluatorModel) setEvaluatorModel(draft.evaluatorModel);
+      if (draft.evaluationPrompts?.length) setEvaluationPrompts(draft.evaluationPrompts);
+      setDraftSavedAt(new Date(draft.savedAt));
+      setDraftRestored(true);
+    } catch {
+      // ignore
+    }
+    setShowDraftBanner(false);
+  };
+
+  const discardDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setShowDraftBanner(false);
+    setDraftSavedAt(null);
+  };
+
+  const clearDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setDraftSavedAt(null);
+  };
+
+  // Autosave with 2s debounce
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      try {
+        const draft = {
+          title,
+          prompts,
+          selectedChatbots,
+          hasEvaluation,
+          evaluatorModel,
+          evaluationPrompts,
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        setDraftSavedAt(new Date());
+      } catch {
+        // ignore storage errors
+      }
+    }, 2000);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [title, prompts, selectedChatbots, hasEvaluation, evaluatorModel, evaluationPrompts]);
+
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
   });
@@ -2079,6 +2163,7 @@ export default function ComposePage() {
       }
     },
     onSuccess: (result) => {
+      clearDraft();
       if (result.single) {
         setCurrentRun(result.single);
         pollForResults(result.single.id);
@@ -2180,6 +2265,7 @@ export default function ComposePage() {
     setCurrentRun(null);
     setPrompts([{ id: crypto.randomUUID(), order: 0, role: "user", content: "" }]);
     setTitle("New Cooperation Session");
+    clearDraft();
   };
 
   const loadTemplate = (template: PromptTemplate) => {
@@ -2348,6 +2434,25 @@ export default function ComposePage() {
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-6xl mx-auto space-y-6">
+
+          {/* Draft restore banner */}
+          {showDraftBanner && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 px-4 py-3" data-testid="draft-restore-banner">
+              <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200">
+                <Save className="h-4 w-4 flex-shrink-0" />
+                <span>You have an unsaved draft from a previous session.</span>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                <Button size="sm" variant="outline" onClick={discardDraft} data-testid="button-discard-draft" className="h-7 text-xs border-amber-300 dark:border-amber-700">
+                  Discard
+                </Button>
+                <Button size="sm" onClick={resumeDraft} data-testid="button-resume-draft" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white">
+                  Resume Draft
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex-1 min-w-[200px]">
               <Input
@@ -2357,6 +2462,12 @@ export default function ComposePage() {
                 placeholder="Session title..."
                 data-testid="input-session-title"
               />
+              {draftSavedAt && (
+                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1" data-testid="text-draft-saved">
+                  <Save className="h-3 w-3" />
+                  Draft saved {draftSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              )}
             </div>
             <div className="flex gap-2 flex-wrap">
               <DropdownMenu>

@@ -53,8 +53,17 @@ Preferred communication style: Simple, everyday language.
 - **Token Tracking**: All 5 AI wrapper functions (`callOpenAI`, `callAnthropic`, `callGemini`, `callXAI`, `callOpenRouter`) return `AICallResult` with content + token usage
 - **Storage**: Token counts (`promptTokens`, `completionTokens`, `totalTokens`) stored in the `ChatbotResponse` JSONB alongside content and latency
 - **Pricing**: Approximate per-model costs defined in `MODEL_COST_PER_MILLION` in `server/routes.ts`
-- **API**: `GET /api/cost-analytics` aggregates token usage from all runs and returns per-model breakdowns with estimated costs
-- **UI**: Cost Analytics card on the Settings page (`client/src/pages/settings.tsx`) showing totals and per-model breakdowns
+- **API**: `GET /api/cost-analytics` aggregates token usage, supports `?from=YYYY-MM-DD&to=YYYY-MM-DD` date filtering, returns per-model breakdowns + `dailyTrend` array
+- **UI**: Cost Analytics card on the Settings page (`client/src/pages/settings.tsx`) with date preset selector (Today/7d/30d/All/Custom), recharts stacked BarChart for daily cost trend, and per-model breakdown
+
+### Draft Autosave
+- **Storage**: `compose_draft` localStorage key persists title, prompts, selected chatbots, evaluation settings
+- **Debounce**: 2-second debounce autosave on any change; cleared on successful run submission or reset
+- **UI**: amber banner on page load if draft exists (Resume/Discard actions); "Draft saved HH:MM" indicator below title input
+
+### Benchmark Dashboard Performance
+- **Backend**: `GET /api/benchmark-results` pre-aggregates all 6 benchmark types (prisoners, liferaft, trolley, sycophancy, deception, parasite) server-side
+- **Frontend**: `benchmark.tsx` uses the lightweight pre-computed endpoint instead of fetching all raw run data; `useMemo` for aggregate and total calculations; loading skeleton states
 
 ### Key Design Decisions
 1. **Shared Schema Pattern**: Types defined in `shared/` directory are accessible to both client and server, ensuring type safety across the stack

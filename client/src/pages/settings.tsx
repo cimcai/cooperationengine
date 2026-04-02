@@ -7,12 +7,17 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Chatbot, BenchmarkWeight } from "@shared/schema";
 import { useState, useEffect } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
+} from "recharts";
 
 const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-5 w-5" />,
@@ -30,6 +35,19 @@ const providerColors: Record<string, string> = {
   openrouter: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
 };
 
+const MODEL_CHART_COLORS: Record<string, string> = {
+  "openai-gpt5": "#10b981",
+  "openai-gpt4o": "#34d399",
+  "anthropic-sonnet": "#f97316",
+  "anthropic-opus": "#ea580c",
+  "gemini-flash": "#3b82f6",
+  "gemini-pro": "#1d4ed8",
+  "xai-grok": "#71717a",
+  "openrouter-grok4": "#a855f7",
+  "openrouter-deepseek": "#9333ea",
+  "openrouter-llama": "#c084fc",
+};
+
 const providerDescriptions: Record<string, string> = {
   openai: "OpenAI's GPT models via Replit AI Integrations",
   anthropic: "Anthropic's Claude models via Replit AI Integrations",
@@ -37,9 +55,63 @@ const providerDescriptions: Record<string, string> = {
   xai: "xAI's Grok models - requires XAI_API_KEY secret",
 };
 
+type DatePreset = "today" | "7days" | "30days" | "all" | "custom";
+
+function toISODate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+function getPresetRange(preset: DatePreset): { from: string | null; to: string | null } {
+  const today = toISODate(new Date());
+  switch (preset) {
+    case "today":
+      return { from: today, to: today };
+    case "7days": {
+      const d = new Date();
+      d.setDate(d.getDate() - 6);
+      return { from: toISODate(d), to: today };
+    }
+    case "30days": {
+      const d = new Date();
+      d.setDate(d.getDate() - 29);
+      return { from: toISODate(d), to: today };
+    }
+    case "all":
+    default:
+      return { from: null, to: null };
+  }
+}
+
+interface CostModelStats {
+  modelId: string;
+  displayName: string;
+  provider: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+  callCount: number;
+}
+
+interface DailyTrendEntry {
+  date: string;
+  totalCost: number;
+  byModel: Record<string, number>;
+}
+
+interface CostAnalytics {
+  models: CostModelStats[];
+  totals: {
+    estimatedCost: number;
+    totalTokens: number;
+    totalCalls: number;
+  };
+  dailyTrend: DailyTrendEntry[];
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
-  
+
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
   });
@@ -103,28 +175,25 @@ export default function SettingsPage() {
     setHasChanges(true);
   };
 
-  interface CostModelStats {
-    modelId: string;
-    displayName: string;
-    provider: string;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    estimatedCost: number;
-    callCount: number;
-  }
+  // Date range state
+  const [datePreset, setDatePreset] = useState<DatePreset>("30days");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState(toISODate(new Date()));
 
-  interface CostAnalytics {
-    models: CostModelStats[];
-    totals: {
-      estimatedCost: number;
-      totalTokens: number;
-      totalCalls: number;
-    };
-  }
+  const effectiveRange = datePreset === "custom"
+    ? { from: customFrom || null, to: customTo || null }
+    : getPresetRange(datePreset);
+
+  const costQueryKey = (() => {
+    const params = new URLSearchParams();
+    if (effectiveRange.from) params.set("from", effectiveRange.from);
+    if (effectiveRange.to) params.set("to", effectiveRange.to);
+    const qs = params.toString();
+    return [qs ? `/api/cost-analytics?${qs}` : "/api/cost-analytics"];
+  })();
 
   const { data: costAnalytics, isLoading: costLoading } = useQuery<CostAnalytics>({
-    queryKey: ["/api/cost-analytics"],
+    queryKey: costQueryKey,
   });
 
   const groupedChatbots = chatbots.reduce((acc, chatbot) => {
@@ -134,6 +203,20 @@ export default function SettingsPage() {
     acc[chatbot.provider].push(chatbot);
     return acc;
   }, {} as Record<string, Chatbot[]>);
+
+  // Determine which models appear in the daily trend
+  const trendModels = costAnalytics
+    ? [...new Set(costAnalytics.dailyTrend.flatMap(d => Object.keys(d.byModel)))]
+    : [];
+
+  // Chart data: each row is a day with a cost per model
+  const chartData = costAnalytics?.dailyTrend.map(d => {
+    const row: Record<string, number | string> = { date: d.date.slice(5) }; // MM-DD
+    for (const m of trendModels) {
+      row[m] = parseFloat(((d.byModel[m] || 0)).toFixed(6));
+    }
+    return row;
+  }) ?? [];
 
   return (
     <div className="flex flex-col h-full p-6 overflow-auto">
@@ -183,9 +266,9 @@ export default function SettingsPage() {
                 </div>
               </div>
             ))}
-            
+
             <Separator />
-            
+
             <div className="flex items-center justify-between gap-4">
               <Button
                 variant="outline"
@@ -207,25 +290,70 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Cost Analytics Card */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <DollarSign className="h-4 w-4" />
-              Cost Analytics
-            </CardTitle>
-            <CardDescription>
-              Estimated API costs based on token usage from all runs. Costs are approximate and based on published provider pricing.
-            </CardDescription>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />
+                  Cost Analytics
+                </CardTitle>
+                <CardDescription>
+                  Estimated API costs based on token usage. Approximate, based on published provider pricing.
+                </CardDescription>
+              </div>
+
+              {/* Date range controls */}
+              <div className="flex items-center gap-2 flex-wrap" data-testid="cost-date-filter">
+                <Select
+                  value={datePreset}
+                  onValueChange={(v) => setDatePreset(v as DatePreset)}
+                >
+                  <SelectTrigger className="w-36 h-8 text-xs" data-testid="select-date-preset">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="7days">Last 7 days</SelectItem>
+                    <SelectItem value="30days">Last 30 days</SelectItem>
+                    <SelectItem value="all">All time</SelectItem>
+                    <SelectItem value="custom">Custom range</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {datePreset === "custom" && (
+                  <>
+                    <Input
+                      type="date"
+                      value={customFrom}
+                      onChange={e => setCustomFrom(e.target.value)}
+                      className="h-8 w-36 text-xs"
+                      data-testid="input-custom-from"
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <Input
+                      type="date"
+                      value={customTo}
+                      onChange={e => setCustomTo(e.target.value)}
+                      className="h-8 w-36 text-xs"
+                      data-testid="input-custom-to"
+                    />
+                  </>
+                )}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {costLoading ? (
               <div className="text-sm text-muted-foreground" data-testid="text-cost-loading">Loading cost data...</div>
             ) : !costAnalytics || costAnalytics.totals.totalCalls === 0 ? (
               <div className="text-sm text-muted-foreground" data-testid="text-cost-empty">
-                No token usage data yet. Run some prompts to start tracking costs. Token tracking applies to new runs only.
+                No token usage data for the selected period. Run some prompts to start tracking costs.
               </div>
             ) : (
               <div className="space-y-6">
+                {/* Summary stats */}
                 <div className="grid grid-cols-3 gap-4">
                   <div className="p-4 bg-muted rounded-lg text-center" data-testid="stat-total-cost">
                     <div className="text-2xl font-bold text-primary">
@@ -247,8 +375,70 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
+                {/* Daily cost trend chart */}
+                {chartData.length > 0 && (
+                  <>
+                    <Separator />
+                    <div>
+                      <h4 className="text-sm font-medium flex items-center gap-2 mb-3">
+                        <TrendingUp className="h-4 w-4" />
+                        Daily Cost Trend
+                        <span className="text-xs text-muted-foreground font-normal">
+                          (estimated USD, stacked by model)
+                        </span>
+                      </h4>
+                      <div className="w-full" style={{ height: 200 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                            <XAxis
+                              dataKey="date"
+                              tick={{ fontSize: 10 }}
+                              tickLine={false}
+                              axisLine={false}
+                            />
+                            <YAxis
+                              tick={{ fontSize: 10 }}
+                              tickLine={false}
+                              axisLine={false}
+                              tickFormatter={(v: number) => `$${v.toFixed(3)}`}
+                              width={52}
+                            />
+                            <Tooltip
+                              formatter={(value: number, name: string) => [
+                                `$${value.toFixed(6)}`,
+                                costAnalytics.models.find(m => m.modelId === name)?.displayName || name,
+                              ]}
+                              contentStyle={{ fontSize: 12 }}
+                            />
+                            {trendModels.length > 1 && (
+                              <Legend
+                                formatter={(value: string) =>
+                                  costAnalytics.models.find(m => m.modelId === value)?.displayName || value
+                                }
+                                iconSize={8}
+                                wrapperStyle={{ fontSize: 11 }}
+                              />
+                            )}
+                            {trendModels.map(modelId => (
+                              <Bar
+                                key={modelId}
+                                dataKey={modelId}
+                                stackId="cost"
+                                fill={MODEL_CHART_COLORS[modelId] || "#6b7280"}
+                                radius={trendModels[trendModels.length - 1] === modelId ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+                              />
+                            ))}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <Separator />
 
+                {/* Per-model breakdown */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-medium flex items-center gap-2">
                     <Activity className="h-4 w-4" />
@@ -261,7 +451,9 @@ export default function SettingsPage() {
                       <div key={model.modelId} className="space-y-2" data-testid={`cost-row-${model.modelId}`}>
                         <div className="flex items-center justify-between text-sm">
                           <div className="flex items-center gap-2">
-                            <div className={`flex h-6 w-6 items-center justify-center rounded text-xs ${providerColors[model.provider] || "bg-zinc-500/10 text-zinc-600"}`}>
+                            <div
+                              className={`flex h-6 w-6 items-center justify-center rounded text-xs ${providerColors[model.provider] || "bg-zinc-500/10 text-zinc-600"}`}
+                            >
                               {providerIcons[model.provider] || <span className="text-xs font-bold">{model.provider[0]?.toUpperCase()}</span>}
                             </div>
                             <span className="font-medium">{model.displayName}</span>
@@ -297,7 +489,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Cooperation Engine allows you to send the same prompts to multiple AI chatbots 
+              Cooperation Engine allows you to send the same prompts to multiple AI chatbots
               simultaneously and compare their responses side-by-side. This is useful for:
             </p>
             <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
@@ -334,7 +526,7 @@ export default function SettingsPage() {
                   <div className="flex-1">
                     <h3 className="font-medium capitalize">{provider}</h3>
                     <p className="text-sm text-muted-foreground">{providerDescriptions[provider]}</p>
-                    
+
                     <div className="mt-4 space-y-3">
                       {models.map((model) => (
                         <div key={model.id} className="flex items-center justify-between gap-4 p-3 border rounded-md">
