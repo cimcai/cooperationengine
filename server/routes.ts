@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Response as ExpressResponse } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
 import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage } from "@shared/schema";
@@ -666,6 +666,18 @@ function csvRow(cells: unknown[]): string {
   return cells.map(csvCell).join(",");
 }
 
+// ── Wargame SSE Progress ──────────────────────────────────────────────────────
+const wargameSSEClients = new Map<string, Set<ExpressResponse>>();
+
+function emitWargameEvent(gameId: string, data: object) {
+  const clients = wargameSSEClients.get(gameId);
+  if (!clients || clients.size === 0) return;
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const client of Array.from(clients)) {
+    try { client.write(payload); } catch { clients.delete(client); }
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -1104,6 +1116,33 @@ export async function registerRoutes(
       console.error("Error fetching wargames:", error);
       res.status(500).json({ error: "Failed to fetch wargames" });
     }
+  });
+
+  app.get("/api/wargames/:id/events", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    const gameId = req.params.id;
+    if (!wargameSSEClients.has(gameId)) {
+      wargameSSEClients.set(gameId, new Set());
+    }
+    wargameSSEClients.get(gameId)!.add(res);
+
+    const heartbeat = setInterval(() => {
+      try { res.write(": ping\n\n"); } catch { clearInterval(heartbeat); }
+    }, 15000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      const set = wargameSSEClients.get(gameId);
+      if (set) {
+        set.delete(res);
+        if (set.size === 0) wargameSSEClients.delete(gameId);
+      }
+    });
   });
 
   app.get("/api/wargames/:id", async (req, res) => {
@@ -2316,8 +2355,16 @@ Format your response with clear headers. Use verbal descriptions of escalation l
     const turns: WargameTurn[] = [];
 
     for (let turn = 0; turn < config.totalTurns; turn++) {
+      const turnNumber = turn + 1;
       const isLast = turn === config.totalTurns - 1;
-      const baseSituation = generateTurnPrompt(turn + 1, config.totalTurns, isLast);
+      const baseSituation = generateTurnPrompt(turnNumber, config.totalTurns, isLast);
+
+      // Notify subscribers that this turn is starting
+      emitWargameEvent(gameId, {
+        type: "turn_start",
+        turnNumber,
+        totalTurns: config.totalTurns,
+      });
 
       let alphaPrompt = baseSituation;
       let betaPrompt = baseSituation;
@@ -2331,41 +2378,73 @@ Format your response with clear headers. Use verbal descriptions of escalation l
       alphaHistory.push({ role: "user", content: alphaPrompt });
       betaHistory.push({ role: "user", content: betaPrompt });
 
-      const timedModelCall = async (chatbot: typeof alphaBot, history: { role: string; content: string }[]) => {
+      // Call each model independently to capture per-model errors
+      const safeModelCall = async (chatbot: typeof alphaBot, history: { role: string; content: string }[]) => {
         const start = Date.now();
-        const result = await callModel(chatbot, history);
-        return { ...result, latencyMs: Date.now() - start };
+        try {
+          const result = await callModel(chatbot, history);
+          return { content: result.content, latencyMs: Date.now() - start, error: undefined };
+        } catch (err) {
+          return {
+            content: "",
+            latencyMs: Date.now() - start,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
       };
 
       const [alphaTimed, betaTimed] = await Promise.all([
-        timedModelCall(alphaBot, alphaHistory),
-        timedModelCall(betaBot, betaHistory),
+        safeModelCall(alphaBot, alphaHistory),
+        safeModelCall(betaBot, betaHistory),
       ]);
 
-      const alphaResponse = alphaTimed.content;
-      const betaResponse = betaTimed.content;
+      // If both models failed, abort the simulation
+      if (alphaTimed.error && betaTimed.error) {
+        console.error(`Wargame ${gameId} turn ${turnNumber}: both models failed`);
+        emitWargameEvent(gameId, {
+          type: "game_failed",
+          turnNumber,
+          alphaError: alphaTimed.error,
+          betaError: betaTimed.error,
+        });
+        throw new Error(`Both models failed on turn ${turnNumber}: alpha=${alphaTimed.error}; beta=${betaTimed.error}`);
+      }
 
+      const alphaResponse = alphaTimed.content || `[Model unavailable: ${alphaTimed.error}]`;
+      const betaResponse = betaTimed.content || `[Model unavailable: ${betaTimed.error}]`;
+
+      // Only push non-empty content to conversation history
       alphaHistory.push({ role: "assistant", content: alphaResponse });
       betaHistory.push({ role: "assistant", content: betaResponse });
 
       const turnData: WargameTurn = {
-        turnNumber: turn + 1,
+        turnNumber,
         situationDescription: baseSituation,
         alphaResponse,
         betaResponse,
-        alphaPublicSignal: extractPublicSignal(alphaResponse),
-        alphaPrivateAction: extractPrivateAction(alphaResponse),
-        betaPublicSignal: extractPublicSignal(betaResponse),
-        betaPrivateAction: extractPrivateAction(betaResponse),
+        alphaPublicSignal: alphaTimed.error ? `[Error: ${alphaTimed.error}]` : extractPublicSignal(alphaResponse),
+        alphaPrivateAction: alphaTimed.error ? "[Model failed this turn]" : extractPrivateAction(alphaResponse),
+        betaPublicSignal: betaTimed.error ? `[Error: ${betaTimed.error}]` : extractPublicSignal(betaResponse),
+        betaPrivateAction: betaTimed.error ? "[Model failed this turn]" : extractPrivateAction(betaResponse),
         alphaLatencyMs: alphaTimed.latencyMs,
         betaLatencyMs: betaTimed.latencyMs,
+        ...(alphaTimed.error ? { alphaError: alphaTimed.error } : {}),
+        ...(betaTimed.error ? { betaError: betaTimed.error } : {}),
       };
 
       turns.push(turnData);
 
       await storage.updateWargame(gameId, {
-        currentTurn: turn + 1,
+        currentTurn: turnNumber,
         turns,
+      });
+
+      // Notify subscribers that this turn is complete
+      emitWargameEvent(gameId, {
+        type: "turn_complete",
+        turnNumber,
+        totalTurns: config.totalTurns,
+        turnData,
       });
     }
 
@@ -2374,11 +2453,17 @@ Format your response with clear headers. Use verbal descriptions of escalation l
       completedAt: new Date().toISOString(),
     });
 
+    emitWargameEvent(gameId, { type: "game_complete", totalTurns: config.totalTurns });
+
   } catch (error) {
     console.error("Wargame failed:", error);
     await storage.updateWargame(gameId, {
       status: "failed",
       completedAt: new Date().toISOString(),
+    });
+    emitWargameEvent(gameId, {
+      type: "game_failed",
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 }

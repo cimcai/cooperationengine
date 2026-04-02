@@ -126,6 +126,8 @@ export interface WargameTurn {
   betaPrivateAction: string;
   alphaLatencyMs: number;
   betaLatencyMs: number;
+  alphaError?: string;
+  betaError?: string;
 }
 
 export interface Wargame {
