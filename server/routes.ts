@@ -1018,8 +1018,8 @@ export async function registerRoutes(
         const session = sessionMap.get(run.sessionId);
         if (!session) continue;
         const prompts = session.prompts || [];
-        const systemPrompt = prompts.find((p: any) => p.role === "system")?.content || "";
-        const firstUserPrompt = prompts.find((p: any) => p.role === "user")?.content || "";
+        const systemPrompt = prompts.find(p => p.role === "system")?.content || "";
+        const firstUserPrompt = prompts.find(p => p.role === "user")?.content || "";
         const testType = getSessionType(systemPrompt + " " + firstUserPrompt);
         if (!testType) continue;
 
@@ -1949,21 +1949,14 @@ export async function registerRoutes(
 
   app.get("/api/cost-analytics", async (req, res) => {
     try {
-      const allRuns = await storage.getRuns();
-
-      // Optional date range filtering via ?from=YYYY-MM-DD&to=YYYY-MM-DD
+      // DB-level date filtering via ?from=YYYY-MM-DD&to=YYYY-MM-DD
       const fromParam = req.query.from as string | undefined;
       const toParam   = req.query.to   as string | undefined;
-      const fromDate = fromParam ? new Date(fromParam) : null;
-      // Extend "to" to include the full day
-      const toDate   = toParam   ? new Date(new Date(toParam).getTime() + 86_400_000) : null;
+      const fromDate = fromParam ? new Date(fromParam) : undefined;
+      // Extend "to" by one day so the full "to" day is included
+      const toDate = toParam ? new Date(new Date(toParam).getTime() + 86_400_000) : undefined;
 
-      const runs = allRuns.filter(run => {
-        const ts = new Date(run.startedAt).getTime();
-        if (fromDate && ts < fromDate.getTime()) return false;
-        if (toDate   && ts >= toDate.getTime())  return false;
-        return true;
-      });
+      const runs = await storage.getRunsByDateRange(fromDate, toDate);
 
       const modelStats: Record<string, {
         modelId: string;

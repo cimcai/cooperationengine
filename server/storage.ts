@@ -1,7 +1,7 @@
 import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, sql, ilike, count, inArray } from "drizzle-orm";
+import { eq, desc, and, sql, ilike, count, inArray, gte, lte } from "drizzle-orm";
 
 // Available chatbots configuration
 export const availableChatbots: Chatbot[] = [
@@ -94,6 +94,7 @@ export interface IStorage {
   updateSession(id: string, data: Partial<InsertSession>): Promise<Session | undefined>;
   deleteSession(id: string): Promise<void>;
   getRuns(): Promise<Run[]>;
+  getRunsByDateRange(from?: Date, to?: Date): Promise<Run[]>;
   getRunsBySession(sessionId: string): Promise<Run[]>;
   getRun(id: string): Promise<Run | undefined>;
   createRun(data: InsertRun): Promise<Run>;
@@ -346,6 +347,17 @@ export class DatabaseStorage implements IStorage {
 
   async getRuns(): Promise<Run[]> {
     const result = await db.select().from(runs).orderBy(desc(runs.startedAt));
+    return result.map(dbRunToRun);
+  }
+
+  async getRunsByDateRange(from?: Date, to?: Date): Promise<Run[]> {
+    const conditions = [];
+    if (from) conditions.push(gte(runs.startedAt, from));
+    if (to) conditions.push(lte(runs.startedAt, to));
+    const query = db.select().from(runs).orderBy(desc(runs.startedAt));
+    const result = conditions.length > 0
+      ? await query.where(and(...conditions))
+      : await query;
     return result.map(dbRunToRun);
   }
 
