@@ -1,7 +1,7 @@
 import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, ilike, count, inArray } from "drizzle-orm";
 
 // Available chatbots configuration
 export const availableChatbots: Chatbot[] = [
@@ -154,6 +154,8 @@ export interface IStorage {
   createWargame(data: InsertWargame): Promise<Wargame>;
   updateWargame(id: string, updates: Partial<Wargame>): Promise<Wargame | undefined>;
   deleteWargame(id: string): Promise<void>;
+  // Paginated history
+  getRunsHistory(opts: { page: number; limit: number; search?: string }): Promise<{ items: Array<{ run: Run; session: Session }>; total: number }>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -505,6 +507,63 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWargame(id: string): Promise<void> {
     await db.delete(wargames).where(eq(wargames.id, id));
+  }
+
+  async getRunsHistory(opts: { page: number; limit: number; search?: string }): Promise<{ items: Array<{ run: Run; session: Session }>; total: number }> {
+    const { page, limit, search } = opts;
+    const offset = (page - 1) * limit;
+
+    // Build the where clause for session title search
+    const whereClause = search
+      ? ilike(sessions.title, `%${search}%`)
+      : undefined;
+
+    // Get matching session IDs
+    const matchingSessions = whereClause
+      ? await db.select({ id: sessions.id }).from(sessions).where(whereClause)
+      : await db.select({ id: sessions.id }).from(sessions);
+
+    const sessionIds = matchingSessions.map(s => s.id);
+
+    if (sessionIds.length === 0) {
+      return { items: [], total: 0 };
+    }
+
+    // Count total matching runs
+    const totalResult = await db
+      .select({ count: count() })
+      .from(runs)
+      .where(inArray(runs.sessionId, sessionIds));
+    const total = Number(totalResult[0]?.count ?? 0);
+
+    // Fetch paginated runs
+    const runsResult = await db
+      .select()
+      .from(runs)
+      .where(inArray(runs.sessionId, sessionIds))
+      .orderBy(desc(runs.startedAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Build session map from the already-fetched sessions
+    const sessionMap = new Map<string, typeof sessions.$inferSelect>();
+    const sessionRows = await db
+      .select()
+      .from(sessions)
+      .where(inArray(sessions.id, [...new Set(runsResult.map(r => r.sessionId))]));
+    for (const row of sessionRows) {
+      sessionMap.set(row.id, row);
+    }
+
+    const items = runsResult
+      .map(runRow => {
+        const sessionRow = sessionMap.get(runRow.sessionId);
+        if (!sessionRow) return null;
+        return { run: dbRunToRun(runRow), session: dbSessionToSession(sessionRow) };
+      })
+      .filter((item): item is { run: Run; session: Session } => item !== null);
+
+    return { items, total };
   }
 
   // Toolkit methods

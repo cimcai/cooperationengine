@@ -983,14 +983,17 @@ export async function registerRoutes(
   // Get history (runs with sessions)
   app.get("/api/history", async (req, res) => {
     try {
-      const runs = await storage.getRuns();
-      const history = await Promise.all(
-        runs.map(async (run) => {
-          const session = await storage.getSession(run.sessionId);
-          return { run, session };
-        })
-      );
-      res.json(history.filter(h => h.session)); // Filter out orphaned runs
+      const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+      const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+      const search = typeof req.query.search === "string" && req.query.search.trim() ? req.query.search.trim() : undefined;
+      const result = await storage.getRunsHistory({ page, limit, search });
+      res.json({
+        items: result.items,
+        total: result.total,
+        page,
+        limit,
+        totalPages: Math.ceil(result.total / limit),
+      });
     } catch (error) {
       console.error("Error fetching history:", error);
       res.status(500).json({ error: "Failed to fetch history" });

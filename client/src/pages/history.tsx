@@ -1,9 +1,17 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -21,19 +29,25 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { 
-  Eye, 
-  Trash2, 
-  Download, 
-  Copy, 
-  CheckCircle2, 
-  XCircle, 
+import {
+  Eye,
+  Trash2,
+  Download,
+  Copy,
+  CheckCircle2,
+  XCircle,
   Clock,
   Loader2,
   FileJson,
   FileSpreadsheet,
   History as HistoryIcon,
   Grid3X3,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  X,
 } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { Link } from "wouter";
@@ -44,6 +58,14 @@ interface HistoryItem {
   session: Session;
 }
 
+interface HistoryResponse {
+  items: HistoryItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 const providerIcons: Record<string, React.ReactNode> = {
   openai: <SiOpenai className="h-3 w-3" />,
   anthropic: <span className="text-[10px] font-bold">A</span>,
@@ -51,18 +73,56 @@ const providerIcons: Record<string, React.ReactNode> = {
   xai: <span className="text-[10px] font-bold">X</span>,
 };
 
+const PAGE_SIZE_OPTIONS = ["25", "50", "100", "250"];
+
 export default function HistoryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedRun, setSelectedRun] = useState<HistoryItem | null>(null);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
 
-  const { data: history = [], isLoading } = useQuery<HistoryItem[]>({
-    queryKey: ["/api/history"],
+  const queryKey = ["/api/history", { page, limit, search }];
+
+  const { data, isLoading } = useQuery<HistoryResponse>({
+    queryKey,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
+      if (search) params.set("search", search);
+      const res = await fetch(`/api/history?${params.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch history");
+      return res.json();
+    },
   });
 
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
     queryKey: ["/api/chatbots"],
   });
+
+  const history = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+
+  const handleSearch = useCallback(() => {
+    setSearch(searchInput.trim());
+    setPage(1);
+  }, [searchInput]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchInput("");
+    setSearch("");
+    setPage(1);
+  }, []);
+
+  const handlePageSizeChange = (val: string) => {
+    setLimit(Number(val));
+    setPage(1);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async (runId: string) => {
@@ -147,6 +207,9 @@ export default function HistoryPage() {
     }
   };
 
+  const startItem = total === 0 ? 0 : (page - 1) * limit + 1;
+  const endItem = Math.min(page * limit, total);
+
   return (
     <div className="flex flex-col h-full p-6">
       <div className="max-w-6xl mx-auto w-full space-y-6">
@@ -159,15 +222,43 @@ export default function HistoryPage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <HistoryIcon className="h-4 w-4" />
-              Recent Runs
-              {history.length > 0 && (
-                <Badge variant="secondary" className="font-normal">
-                  {history.length} run{history.length !== 1 ? 's' : ''}
-                </Badge>
-              )}
-            </CardTitle>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <CardTitle className="text-base flex items-center gap-2">
+                <HistoryIcon className="h-4 w-4" />
+                All Runs
+                {total > 0 && (
+                  <Badge variant="secondary" className="font-normal">
+                    {total.toLocaleString()} total
+                  </Badge>
+                )}
+              </CardTitle>
+
+              {/* Search bar */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    placeholder="Search by session name..."
+                    value={searchInput}
+                    onChange={e => setSearchInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") handleSearch(); }}
+                    className="pl-8 w-64"
+                    data-testid="input-search-history"
+                  />
+                  {searchInput && (
+                    <button
+                      onClick={handleClearSearch}
+                      className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                <Button variant="outline" size="sm" onClick={handleSearch} data-testid="button-search-history">
+                  Search
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -177,11 +268,22 @@ export default function HistoryPage() {
             ) : history.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-32 text-center text-muted-foreground">
                 <HistoryIcon className="h-12 w-12 mb-4 opacity-20" />
-                <p className="text-sm">No runs yet</p>
-                <p className="text-xs mt-1">Start a new session to see runs here</p>
+                {search ? (
+                  <>
+                    <p className="text-sm">No runs found for "{search}"</p>
+                    <Button variant="link" size="sm" onClick={handleClearSearch} className="mt-1">
+                      Clear search
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm">No runs yet</p>
+                    <p className="text-xs mt-1">Start a new session to see runs here</p>
+                  </>
+                )}
               </div>
             ) : (
-              <ScrollArea className="h-[500px]">
+              <>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -202,10 +304,10 @@ export default function HistoryPage() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="max-w-[200px]">
+                          <div className="max-w-[220px]">
                             <p className="font-medium truncate">{item.session.title}</p>
                             <p className="text-xs text-muted-foreground truncate">
-                              {item.session.prompts.length} prompt{item.session.prompts.length !== 1 ? 's' : ''}
+                              {item.session.prompts.length} prompt{item.session.prompts.length !== 1 ? "s" : ""}
                             </p>
                           </div>
                         </TableCell>
@@ -277,7 +379,74 @@ export default function HistoryPage() {
                     ))}
                   </TableBody>
                 </Table>
-              </ScrollArea>
+
+                {/* Pagination footer */}
+                <div className="flex items-center justify-between pt-4 flex-wrap gap-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Showing {startItem}–{endItem} of {total.toLocaleString()} runs</span>
+                    <span className="text-muted-foreground/40">|</span>
+                    <div className="flex items-center gap-1.5">
+                      <span>Rows</span>
+                      <Select value={String(limit)} onValueChange={handlePageSizeChange}>
+                        <SelectTrigger className="h-7 w-16 text-xs" data-testid="select-page-size">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PAGE_SIZE_OPTIONS.map(s => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setPage(1)}
+                      disabled={page === 1}
+                      data-testid="button-page-first"
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      data-testid="button-page-prev"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm px-3 py-1 border rounded-md min-w-[90px] text-center">
+                      Page {page} / {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page >= totalPages}
+                      data-testid="button-page-next"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setPage(totalPages)}
+                      disabled={page >= totalPages}
+                      data-testid="button-page-last"
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -291,7 +460,7 @@ export default function HistoryPage() {
               Run ID: {selectedRun?.run.id.slice(0, 8)}... | {selectedRun && formatDate(selectedRun.run.startedAt)}
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedRun && (
             <div className="space-y-4">
               <div>
