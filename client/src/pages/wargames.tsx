@@ -115,7 +115,7 @@ export default function WargamesPage() {
       case "running": return (
         <Badge className="bg-blue-500 text-white gap-1">
           <Loader2 className="h-3 w-3 animate-spin" />
-          Turn {game.currentTurn + 1}/{game.totalTurns}
+          Turn {Math.min(game.currentTurn + 1, game.totalTurns)}/{game.totalTurns}
         </Badge>
       );
       case "completed": return <Badge className="bg-green-600 text-white">Completed</Badge>;
@@ -349,39 +349,56 @@ function WargameViewer({ game, chatbots }: { game: Wargame; chatbots: Chatbot[] 
 
   // SSE connection for live progress when game is running
   const sseRef = useRef<EventSource | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (game.status !== "running") {
       sseRef.current?.close();
       sseRef.current = null;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       return;
     }
 
-    if (sseRef.current && sseRef.current.url.includes(game.id)) return;
+    const connect = () => {
+      if (sseRef.current) sseRef.current.close();
+      const es = new EventSource(`/api/wargames/${game.id}/events`);
+      sseRef.current = es;
 
-    sseRef.current?.close();
-    const es = new EventSource(`/api/wargames/${game.id}/events`);
-    sseRef.current = es;
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (
+            data.type === "turn_start" ||
+            data.type === "turn_complete" ||
+            data.type === "game_complete" ||
+            data.type === "game_failed"
+          ) {
+            queryClient.invalidateQueries({ queryKey: ["/api/wargames"] });
+          }
+        } catch { /* ignore parse errors */ }
+      };
 
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (
-          data.type === "turn_complete" ||
-          data.type === "game_complete" ||
-          data.type === "game_failed"
-        ) {
-          queryClient.invalidateQueries({ queryKey: ["/api/wargames"] });
-        }
-      } catch { /* ignore parse errors */ }
+      es.onerror = () => {
+        es.close();
+        sseRef.current = null;
+        // Reconnect after 3 s if game still expected to be running
+        reconnectTimer.current = setTimeout(connect, 3000);
+      };
     };
 
-    es.onerror = () => { es.close(); };
+    connect();
 
-    return () => { es.close(); };
+    return () => {
+      sseRef.current?.close();
+      sseRef.current = null;
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    };
   }, [game.id, game.status]);
 
-  // Infer which turn is currently being processed
-  const processingTurn = game.status === "running" ? game.currentTurn + 1 : null;
+  // Infer which turn is currently being processed (clamped to totalTurns)
+  const processingTurn = game.status === "running"
+    ? Math.min(game.currentTurn + 1, game.totalTurns)
+    : null;
   const progressPct = (game.currentTurn / game.totalTurns) * 100;
 
   return (
