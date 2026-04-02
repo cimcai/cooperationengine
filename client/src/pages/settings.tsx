@@ -209,7 +209,7 @@ export default function SettingsPage() {
 
   // Determine which models appear in the daily trend
   const trendModels = costAnalytics
-    ? [...new Set(costAnalytics.dailyTrend.flatMap(d => Object.keys(d.byModel)))]
+    ? Array.from(new Set(costAnalytics.dailyTrend.flatMap(d => Object.keys(d.byModel))))
     : [];
 
   // Chart data: each row is a day with a cost per model

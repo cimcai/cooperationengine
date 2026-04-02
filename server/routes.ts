@@ -1967,6 +1967,11 @@ export async function registerRoutes(
       const toDate = toParam ? new Date(`${toParam}T00:00:00.000Z`) : undefined;
       if (toDate) toDate.setUTCDate(toDate.getUTCDate() + 1);
 
+      // Guard against inverted ranges
+      if (fromDate && toDate && fromDate >= toDate) {
+        return res.status(400).json({ error: "'from' date must be before 'to' date." });
+      }
+
       const runs = await storage.getRunsByDateRange(fromDate, toDate);
 
       const modelStats: Record<string, {
