@@ -1,7 +1,7 @@
 import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, sql, ilike, count, inArray, gte, lte } from "drizzle-orm";
+import { eq, desc, and, sql, ilike, count, inArray, gte, lt } from "drizzle-orm";
 
 // Available chatbots configuration
 export const availableChatbots: Chatbot[] = [
@@ -353,7 +353,9 @@ export class DatabaseStorage implements IStorage {
   async getRunsByDateRange(from?: Date, to?: Date): Promise<Run[]> {
     const conditions = [];
     if (from) conditions.push(gte(runs.startedAt, from));
-    if (to) conditions.push(lte(runs.startedAt, to));
+    // "to" is already set to midnight of the day AFTER the user's chosen end date,
+    // so we use strict less-than (<) to get a correct exclusive upper bound.
+    if (to) conditions.push(lt(runs.startedAt, to));
     const query = db.select().from(runs).orderBy(desc(runs.startedAt));
     const result = conditions.length > 0
       ? await query.where(and(...conditions))
