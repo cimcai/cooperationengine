@@ -646,6 +646,17 @@ async function callOpenRouter(model: string, messages: { role: string; content: 
   return { content: response.choices[0]?.message?.content || "", usage };
 }
 
+// CSV cell escaping — wraps value in quotes, doubles any internal quotes
+function csvCell(value: unknown): string {
+  const str = value == null ? "" : String(value);
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+// Build a CSV row from an array of values
+function csvRow(cells: unknown[]): string {
+  return cells.map(csvCell).join(",");
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -983,8 +994,10 @@ export async function registerRoutes(
   // Get history (runs with sessions)
   app.get("/api/history", async (req, res) => {
     try {
-      const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
-      const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+      const rawPage = parseInt(String(req.query.page || "1"), 10);
+      const rawLimit = parseInt(String(req.query.limit || "50"), 10);
+      const page = isNaN(rawPage) ? 1 : Math.max(1, rawPage);
+      const limit = isNaN(rawLimit) ? 50 : Math.min(500, Math.max(1, rawLimit));
       const search = typeof req.query.search === "string" && req.query.search.trim() ? req.query.search.trim() : undefined;
       const result = await storage.getRunsHistory({ page, limit, search });
       res.json({
@@ -1816,12 +1829,15 @@ export async function registerRoutes(
 
   app.get("/api/export", async (req, res) => {
     try {
-      const sessions = await storage.getSessions();
-      const runs = await storage.getRuns();
-      const arenaMatches = await storage.getArenaMatches();
-      const toolkitItems = await storage.getToolkitItems();
-      const benchmarkWeights = await storage.getBenchmarkWeights();
-      const constructs = await storage.getConstructs();
+      const [sessions, runs, arenaMatches, toolkitItems, benchmarkWeights, constructs, wargames] = await Promise.all([
+        storage.getSessions(),
+        storage.getRuns(),
+        storage.getArenaMatches(),
+        storage.getToolkitItems(),
+        storage.getBenchmarkWeights(),
+        storage.getConstructs(),
+        storage.getWargames(),
+      ]);
 
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", "attachment; filename=cooperation-engine-export.zip");
@@ -1829,68 +1845,135 @@ export async function registerRoutes(
       const archive = archiver("zip", { zlib: { level: 9 } });
       archive.pipe(res);
 
-      // Sessions CSV
-      let sessionsCsv = "id,title,created_at\n";
-      for (const s of sessions) {
-        sessionsCsv += `"${s.id}","${(s.title || "").replace(/"/g, '""')}","${s.createdAt || ""}"\n`;
-      }
-      archive.append(sessionsCsv, { name: "sessions.csv" });
+      const exportedAt = new Date().toISOString();
 
-      // Runs CSV with responses
-      let runsCsv = "run_id,session_id,status,chatbot_id,response_content,error,started_at\n";
+      // ── metadata.json ──────────────────────────────────────────────
+      const metadata = {
+        exportedAt,
+        app: "Cooperation Engine",
+        counts: {
+          sessions: sessions.length,
+          runs: runs.length,
+          arenaMatches: arenaMatches.length,
+          toolkitItems: toolkitItems.length,
+          benchmarkWeights: benchmarkWeights.length,
+          constructs: constructs.length,
+          wargames: wargames.length,
+        },
+        files: [
+          "metadata.json",
+          "sessions.csv",
+          "runs.csv",
+          "arena_matches.csv",
+          "arena_rounds.csv",
+          "toolkit_items.csv",
+          "benchmark_weights.csv",
+          "constructs.csv",
+          "wargames.csv",
+          "wargames.json",
+        ],
+      };
+      archive.append(JSON.stringify(metadata, null, 2), { name: "metadata.json" });
+
+      // ── sessions.csv ───────────────────────────────────────────────
+      const sessionsRows = [csvRow(["id", "title", "prompt_count", "created_at"])];
+      for (const s of sessions) {
+        sessionsRows.push(csvRow([s.id, s.title, s.prompts?.length ?? 0, s.createdAt]));
+      }
+      archive.append(sessionsRows.join("\n"), { name: "sessions.csv" });
+
+      // ── runs.csv ───────────────────────────────────────────────────
+      const runsRows = [csvRow(["run_id", "session_id", "session_title", "status", "chatbot_id", "step_order", "response_content", "latency_ms", "error", "prompt_tokens", "completion_tokens", "started_at", "completed_at"])];
+      const sessionMap = new Map(sessions.map(s => [s.id, s]));
       for (const r of runs) {
+        const sessionTitle = sessionMap.get(r.sessionId)?.title ?? "";
         const responses = r.responses || [];
         if (responses.length === 0) {
-          runsCsv += `"${r.id}","${r.sessionId}","${r.status}","","","","${r.startedAt || ""}"\n`;
+          runsRows.push(csvRow([r.id, r.sessionId, sessionTitle, r.status, "", "", "", "", "", "", "", r.startedAt, r.completedAt ?? ""]));
         } else {
           for (const resp of responses) {
-            const content = (resp.content || "").replace(/"/g, '""').replace(/\n/g, " ");
-            const error = (resp.error || "").replace(/"/g, '""');
-            runsCsv += `"${r.id}","${r.sessionId}","${r.status}","${resp.chatbotId}","${content}","${error}","${r.startedAt || ""}"\n`;
+            runsRows.push(csvRow([
+              r.id, r.sessionId, sessionTitle, r.status,
+              resp.chatbotId, resp.stepOrder ?? "",
+              resp.content ?? "", resp.latencyMs ?? "",
+              resp.error ?? "",
+              (resp as any).promptTokens ?? "",
+              (resp as any).completionTokens ?? "",
+              r.startedAt, r.completedAt ?? "",
+            ]));
           }
         }
       }
-      archive.append(runsCsv, { name: "runs.csv" });
+      archive.append(runsRows.join("\n"), { name: "runs.csv" });
 
-      // Arena Matches CSV
-      let arenaCsv = "match_id,player1,player2,game_type,status,player1_score,player2_score,total_rounds,created_at\n";
+      // ── arena_matches.csv ──────────────────────────────────────────
+      const arenaRows = [csvRow(["match_id", "player1", "player2", "game_type", "status", "player1_score", "player2_score", "total_rounds", "created_at", "completed_at"])];
       for (const m of arenaMatches) {
-        arenaCsv += `"${m.id}","${m.player1Id}","${m.player2Id}","${m.gameType}","${m.status}","${m.player1Score}","${m.player2Score}","${m.totalRounds}","${m.createdAt || ""}"\n`;
+        arenaRows.push(csvRow([m.id, m.player1Id, m.player2Id, m.gameType, m.status, m.player1Score, m.player2Score, m.totalRounds, m.createdAt, m.completedAt ?? ""]));
       }
-      archive.append(arenaCsv, { name: "arena_matches.csv" });
+      archive.append(arenaRows.join("\n"), { name: "arena_matches.csv" });
 
-      // Arena Rounds CSV (detailed)
-      let roundsCsv = "match_id,round_number,player1_move,player2_move,player1_points,player2_points\n";
+      // ── arena_rounds.csv ───────────────────────────────────────────
+      const roundRows = [csvRow(["match_id", "round_number", "player1_move", "player2_move", "player1_points", "player2_points", "player1_reasoning", "player2_reasoning"])];
       for (const m of arenaMatches) {
-        const rounds = m.rounds || [];
-        for (const round of rounds) {
-          roundsCsv += `"${m.id}","${round.roundNumber}","${round.player1Move}","${round.player2Move}","${round.player1Points}","${round.player2Points}"\n`;
+        for (const round of m.rounds || []) {
+          roundRows.push(csvRow([
+            m.id, round.roundNumber,
+            round.player1Move, round.player2Move,
+            round.player1Points, round.player2Points,
+            (round as any).player1Reasoning ?? "",
+            (round as any).player2Reasoning ?? "",
+          ]));
         }
       }
-      archive.append(roundsCsv, { name: "arena_rounds.csv" });
+      archive.append(roundRows.join("\n"), { name: "arena_rounds.csv" });
 
-      // Toolkit Items CSV
-      let toolkitCsv = "id,name,ai_model,weight,energy,form_factor,capabilities,knowledge,interaction,limitations,reasoning,created_at\n";
+      // ── toolkit_items.csv ──────────────────────────────────────────
+      const toolkitRows = [csvRow(["id", "name", "ai_model", "weight", "energy", "form_factor", "capabilities", "knowledge", "interaction", "limitations", "reasoning", "created_at"])];
       for (const t of toolkitItems) {
-        const capabilities = Array.isArray(t.capabilities) ? t.capabilities.join("; ") : "";
-        const knowledge = Array.isArray(t.knowledge) ? t.knowledge.join("; ") : "";
-        toolkitCsv += `"${t.id}","${(t.name || "").replace(/"/g, '""')}","${t.aiModel}","${t.weight || ""}","${t.energy || ""}","${t.formFactor || ""}","${capabilities.replace(/"/g, '""')}","${knowledge.replace(/"/g, '""')}","${t.interaction || ""}","${(t.limitations || "").replace(/"/g, '""')}","${(t.reasoning || "").replace(/"/g, '""')}","${t.createdAt || ""}"\n`;
+        toolkitRows.push(csvRow([
+          t.id, t.name, t.aiModel, t.weight ?? "", t.energy ?? "", t.formFactor ?? "",
+          Array.isArray(t.capabilities) ? t.capabilities.join("; ") : "",
+          Array.isArray(t.knowledge) ? t.knowledge.join("; ") : "",
+          t.interaction ?? "", t.limitations ?? "", t.reasoning ?? "", t.createdAt,
+        ]));
       }
-      archive.append(toolkitCsv, { name: "toolkit_items.csv" });
+      archive.append(toolkitRows.join("\n"), { name: "toolkit_items.csv" });
 
-      // Benchmark Weights CSV
-      let weightsCsv = "test_id,test_name,weight,updated_at\n";
+      // ── benchmark_weights.csv ──────────────────────────────────────
+      const weightsRows = [csvRow(["test_id", "test_name", "weight", "updated_at"])];
       for (const w of benchmarkWeights) {
-        weightsCsv += `"${w.testId}","${w.testName}","${w.weight}","${w.updatedAt || ""}"\n`;
+        weightsRows.push(csvRow([w.testId, w.testName, w.weight, (w as any).updatedAt ?? ""]));
       }
-      archive.append(weightsCsv, { name: "benchmark_weights.csv" });
+      archive.append(weightsRows.join("\n"), { name: "benchmark_weights.csv" });
 
-      // Constructs Survey CSV
-      let constructsCsv = "id,first_name,last_name,institution,discipline,email,construct,why_important,how_measured_in_humans,challenges_in_ai,adapting_vs_novel,anything_else,citations,rubric_strong_pass,rubric_pass,rubric_partial_pass,rubric_fail,rubric_free_response,created_at\n";
+      // ── constructs.csv ─────────────────────────────────────────────
+      const constructRows = [csvRow(["id", "first_name", "last_name", "institution", "discipline", "email", "construct", "why_important", "how_measured_in_humans", "challenges_in_ai", "adapting_vs_novel", "anything_else", "citations", "rubric_strong_pass", "rubric_pass", "rubric_partial_pass", "rubric_fail", "rubric_free_response", "created_at"])];
       for (const c of constructs) {
-        constructsCsv += `"${c.id}","${(c.firstName || "").replace(/"/g, '""')}","${(c.lastName || "").replace(/"/g, '""')}","${(c.institution || "").replace(/"/g, '""')}","${(c.discipline || "").replace(/"/g, '""')}","${(c.email || "").replace(/"/g, '""')}","${(c.construct || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.whyImportant || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.howMeasuredInHumans || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.challengesInAI || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.adaptingVsNovel || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.anythingElse || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.citations || "").replace(/"/g, '""').replace(/\n/g, " ")}","${(c.rubricStrongPass || "").replace(/"/g, '""')}","${(c.rubricPass || "").replace(/"/g, '""')}","${(c.rubricPartialPass || "").replace(/"/g, '""')}","${(c.rubricFail || "").replace(/"/g, '""')}","${(c.rubricFreeResponse || "").replace(/"/g, '""').replace(/\n/g, " ")}","${c.createdAt || ""}"\n`;
+        constructRows.push(csvRow([
+          c.id, c.firstName ?? "", c.lastName ?? "", c.institution ?? "", c.discipline ?? "", c.email ?? "",
+          c.construct ?? "", c.whyImportant ?? "", c.howMeasuredInHumans ?? "",
+          c.challengesInAI ?? "", c.adaptingVsNovel ?? "", c.anythingElse ?? "", c.citations ?? "",
+          c.rubricStrongPass ?? "", c.rubricPass ?? "", c.rubricPartialPass ?? "",
+          c.rubricFail ?? "", c.rubricFreeResponse ?? "", c.createdAt,
+        ]));
       }
-      archive.append(constructsCsv, { name: "constructs.csv" });
+      archive.append(constructRows.join("\n"), { name: "constructs.csv" });
+
+      // ── wargames.csv ───────────────────────────────────────────────
+      const wargameRows = [csvRow(["id", "alpha_model", "beta_model", "scenario_type", "total_turns", "has_deadline", "status", "current_turn", "peak_escalation", "outcome", "created_at", "completed_at"])];
+      for (const w of wargames) {
+        wargameRows.push(csvRow([
+          w.id, w.alphaModelId, w.betaModelId, w.scenarioType,
+          w.totalTurns, w.hasDeadline ? "yes" : "no", w.status,
+          w.currentTurn, w.peakEscalation ?? "", w.outcome ?? "",
+          w.createdAt, w.completedAt ?? "",
+        ]));
+      }
+      archive.append(wargameRows.join("\n"), { name: "wargames.csv" });
+
+      // ── wargames.json (full turn-by-turn data) ─────────────────────
+      archive.append(JSON.stringify(wargames, null, 2), { name: "wargames.json" });
 
       await archive.finalize();
     } catch (error) {
