@@ -1851,6 +1851,7 @@ export async function registerRoutes(
       const metadata = {
         exportedAt,
         app: "Cooperation Engine",
+        appVersion: "1.0.0",
         counts: {
           sessions: sessions.length,
           runs: runs.length,
@@ -1897,8 +1898,8 @@ export async function registerRoutes(
               resp.chatbotId, resp.stepOrder ?? "",
               resp.content ?? "", resp.latencyMs ?? "",
               resp.error ?? "",
-              (resp as any).promptTokens ?? "",
-              (resp as any).completionTokens ?? "",
+              resp.promptTokens ?? "",
+              resp.completionTokens ?? "",
               r.startedAt, r.completedAt ?? "",
             ]));
           }
@@ -1921,8 +1922,8 @@ export async function registerRoutes(
             m.id, round.roundNumber,
             round.player1Move, round.player2Move,
             round.player1Points, round.player2Points,
-            (round as any).player1Reasoning ?? "",
-            (round as any).player2Reasoning ?? "",
+            round.player1Reasoning ?? "",
+            round.player2Reasoning ?? "",
           ]));
         }
       }
@@ -1943,7 +1944,7 @@ export async function registerRoutes(
       // ── benchmark_weights.csv ──────────────────────────────────────
       const weightsRows = [csvRow(["test_id", "test_name", "weight", "updated_at"])];
       for (const w of benchmarkWeights) {
-        weightsRows.push(csvRow([w.testId, w.testName, w.weight, (w as any).updatedAt ?? ""]));
+        weightsRows.push(csvRow([w.testId, w.testName, w.weight, w.updatedAt ?? ""]));
       }
       archive.append(weightsRows.join("\n"), { name: "benchmark_weights.csv" });
 
