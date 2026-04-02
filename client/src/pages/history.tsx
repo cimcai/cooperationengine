@@ -48,6 +48,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   X,
+  BookOpen,
 } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { Link } from "wouter";
@@ -180,6 +181,220 @@ export default function HistoryPage() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${item.session.title.replace(/\s+/g, "_")}_${item.run.id.slice(0, 8)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportAsStory = (item: HistoryItem) => {
+    const allChatbots = item.run.chatbotIds.map(id => chatbots.find(c => c.id === id)).filter(Boolean) as Chatbot[];
+    const systemPrompt = item.session.prompts.find(p => p.role === "system");
+    const userPrompts = item.session.prompts.filter(p => p.role === "user").sort((a, b) => a.order - b.order);
+    const dateStr = new Date(item.run.startedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const nl2br = (s: string) => esc(s).replace(/\n/g, "<br>");
+
+    const modelColors: Record<string, string> = {
+      openai: "#10a37f",
+      anthropic: "#d97706",
+      gemini: "#4285f4",
+      xai: "#1a1a1a",
+      openrouter: "#7c3aed",
+    };
+
+    const roundSections = userPrompts.map((prompt, idx) => {
+      const responses = item.run.responses.filter(r => r.stepOrder === prompt.order);
+      const responseBlocks = item.run.chatbotIds.map(chatbotId => {
+        const bot = chatbots.find(c => c.id === chatbotId);
+        const resp = responses.find(r => r.chatbotId === chatbotId);
+        const color = modelColors[bot?.provider ?? "openai"] ?? "#555";
+        const content = resp?.error
+          ? `<em style="color:#c00">Error: ${esc(resp.error)}</em>`
+          : resp?.content
+            ? nl2br(resp.content)
+            : `<em style="color:#999">No response</em>`;
+        return `
+          <div class="response-card">
+            <div class="model-label" style="color:${color}">${esc(bot?.displayName ?? chatbotId)}</div>
+            <div class="response-body">${content}</div>
+            ${resp && !resp.error ? `<div class="meta">${resp.latencyMs.toLocaleString()}ms</div>` : ""}
+          </div>`;
+      }).join("");
+
+      return `
+        <section class="round">
+          <div class="round-header">
+            <span class="round-number">Round ${idx + 1}</span>
+          </div>
+          <div class="prompt-box">${nl2br(prompt.content)}</div>
+          <div class="responses">${responseBlocks}</div>
+        </section>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(item.session.title)}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Georgia, "Times New Roman", serif;
+    background: #fafaf8;
+    color: #1a1a1a;
+    line-height: 1.75;
+    padding: 0 1rem 4rem;
+  }
+  .page-wrap { max-width: 860px; margin: 0 auto; }
+  header {
+    padding: 3.5rem 0 2rem;
+    border-bottom: 2px solid #1a1a1a;
+    margin-bottom: 2.5rem;
+  }
+  h1 {
+    font-size: 2.4rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 0.75rem;
+  }
+  .meta-line {
+    font-family: system-ui, sans-serif;
+    font-size: 0.82rem;
+    color: #666;
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .meta-line span::before { content: "· "; }
+  .meta-line span:first-child::before { content: ""; }
+  .models-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 1rem;
+  }
+  .model-badge {
+    font-family: system-ui, sans-serif;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid #ddd;
+    background: #fff;
+    color: #333;
+  }
+  .preface {
+    background: #f0ede6;
+    border-left: 4px solid #8b7355;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 2.5rem;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+    color: #3a3228;
+    font-style: italic;
+  }
+  .preface strong { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8b7355; margin-bottom: 0.5rem; font-style: normal; }
+  .round {
+    margin-bottom: 3rem;
+    padding-bottom: 3rem;
+    border-bottom: 1px solid #e0ddd6;
+  }
+  .round:last-child { border-bottom: none; }
+  .round-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .round-number {
+    font-family: system-ui, sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #888;
+    border: 1px solid #ddd;
+    padding: 0.2rem 0.7rem;
+    border-radius: 3px;
+  }
+  .prompt-box {
+    background: #fff;
+    border: 1px solid #e0ddd6;
+    border-radius: 6px;
+    padding: 1.1rem 1.4rem;
+    font-size: 1rem;
+    margin-bottom: 1.5rem;
+    color: #2a2a2a;
+  }
+  .responses { display: flex; flex-direction: column; gap: 1.25rem; }
+  .response-card {
+    background: #fff;
+    border: 1px solid #e8e5de;
+    border-radius: 8px;
+    padding: 1.25rem 1.4rem;
+  }
+  .model-label {
+    font-family: system-ui, sans-serif;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.65rem;
+  }
+  .response-body {
+    font-size: 0.97rem;
+    line-height: 1.8;
+    color: #1a1a1a;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .meta {
+    font-family: system-ui, sans-serif;
+    font-size: 0.72rem;
+    color: #aaa;
+    margin-top: 0.75rem;
+  }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #ddd;
+    font-family: system-ui, sans-serif;
+    font-size: 0.75rem;
+    color: #999;
+    text-align: center;
+  }
+  @media print {
+    body { background: white; }
+    .round { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+  <header>
+    <h1>${esc(item.session.title)}</h1>
+    <div class="meta-line">
+      <span>${dateStr}</span>
+      <span>${userPrompts.length} rounds</span>
+      <span>${allChatbots.length} model${allChatbots.length !== 1 ? "s" : ""}</span>
+      <span>Run ${item.run.id.slice(0, 8)}</span>
+    </div>
+    <div class="models-list">
+      ${allChatbots.map(b => `<span class="model-badge" style="border-color:${modelColors[b.provider] ?? "#ddd"};color:${modelColors[b.provider] ?? "#333"}">${esc(b.displayName)}</span>`).join("")}
+    </div>
+  </header>
+  ${systemPrompt ? `<div class="preface"><strong>Scenario Context</strong>${nl2br(systemPrompt.content)}</div>` : ""}
+  ${roundSections}
+  <footer>Generated by Cooperation Engine · ${dateStr}</footer>
+</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${item.session.title.replace(/[^a-z0-9]+/gi, "_")}_story.html`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -351,6 +566,15 @@ export default function HistoryPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              onClick={() => exportAsStory(item)}
+                              title="Publish story as HTML"
+                              data-testid={`button-export-story-${item.run.id}`}
+                            >
+                              <BookOpen className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               onClick={() => exportAsJson(item)}
                               data-testid={`button-export-json-${item.run.id}`}
                             >
@@ -479,6 +703,10 @@ export default function HistoryPage() {
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-sm font-medium">Responses</h4>
                   <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => exportAsStory(selectedRun)} data-testid="button-export-story-dialog">
+                      <BookOpen className="h-3 w-3 mr-1" />
+                      Publish Story
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => exportAsJson(selectedRun)}>
                       <Download className="h-3 w-3 mr-1" />
                       JSON
