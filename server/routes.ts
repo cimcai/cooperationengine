@@ -7,7 +7,16 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { Resend } from "resend";
 import archiver from "archiver";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { ESCALATION_LADDER, scenarioConfigs, escalationBeats } from "./wargameConfig";
+
+// Read app version from package.json once at startup
+let APP_VERSION = "1.0.0";
+try {
+  const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf-8"));
+  APP_VERSION = pkg.version ?? "1.0.0";
+} catch { /* keep default */ }
 
 // Initialize AI clients (conditional to allow server to start without all keys)
 const openai = process.env.AI_INTEGRATIONS_OPENAI_API_KEY ? new OpenAI({
@@ -1851,7 +1860,7 @@ export async function registerRoutes(
       const metadata = {
         exportedAt,
         app: "Cooperation Engine",
-        appVersion: "1.0.0",
+        appVersion: APP_VERSION,
         counts: {
           sessions: sessions.length,
           runs: runs.length,

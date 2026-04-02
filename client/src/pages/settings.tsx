@@ -381,7 +381,7 @@ export default function SettingsPage() {
           <CardContent>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Export includes: sessions, runs with AI responses, arena matches and rounds, toolkit items, and benchmark weights.
+                Export includes: sessions, runs with AI responses, arena matches and rounds, toolkit items, benchmark weights, wargames (CSV summary + full JSON with turn-by-turn data), and a metadata.json manifest with record counts and app version.
               </p>
               <Button
                 onClick={() => {
