@@ -1952,9 +1952,20 @@ export async function registerRoutes(
       // DB-level date filtering via ?from=YYYY-MM-DD&to=YYYY-MM-DD
       const fromParam = req.query.from as string | undefined;
       const toParam   = req.query.to   as string | undefined;
-      const fromDate = fromParam ? new Date(fromParam) : undefined;
-      // Extend "to" by one day so the full "to" day is included
-      const toDate = toParam ? new Date(new Date(toParam).getTime() + 86_400_000) : undefined;
+
+      // Validate date params (must be YYYY-MM-DD format and parseable)
+      const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+      if (fromParam && (!ISO_DATE_RE.test(fromParam) || isNaN(Date.parse(fromParam)))) {
+        return res.status(400).json({ error: "Invalid 'from' date. Use YYYY-MM-DD." });
+      }
+      if (toParam && (!ISO_DATE_RE.test(toParam) || isNaN(Date.parse(toParam)))) {
+        return res.status(400).json({ error: "Invalid 'to' date. Use YYYY-MM-DD." });
+      }
+
+      const fromDate = fromParam ? new Date(`${fromParam}T00:00:00.000Z`) : undefined;
+      // Extend "to" by one day (exclusive upper bound) so the full "to" day is included
+      const toDate = toParam ? new Date(`${toParam}T00:00:00.000Z`) : undefined;
+      if (toDate) toDate.setUTCDate(toDate.getUTCDate() + 1);
 
       const runs = await storage.getRunsByDateRange(fromDate, toDate);
 

@@ -57,24 +57,27 @@ const providerDescriptions: Record<string, string> = {
 
 type DatePreset = "today" | "7days" | "30days" | "all" | "custom";
 
-function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
+function toLocalISODate(d: Date) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function getPresetRange(preset: DatePreset): { from: string | null; to: string | null } {
-  const today = toISODate(new Date());
+  const today = toLocalISODate(new Date());
   switch (preset) {
     case "today":
       return { from: today, to: today };
     case "7days": {
       const d = new Date();
       d.setDate(d.getDate() - 6);
-      return { from: toISODate(d), to: today };
+      return { from: toLocalISODate(d), to: today };
     }
     case "30days": {
       const d = new Date();
       d.setDate(d.getDate() - 29);
-      return { from: toISODate(d), to: today };
+      return { from: toLocalISODate(d), to: today };
     }
     case "all":
     default:
@@ -178,7 +181,7 @@ export default function SettingsPage() {
   // Date range state
   const [datePreset, setDatePreset] = useState<DatePreset>("30days");
   const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState(toISODate(new Date()));
+  const [customTo, setCustomTo] = useState(toLocalISODate(new Date()));
 
   const effectiveRange = datePreset === "custom"
     ? { from: customFrom || null, to: customTo || null }
