@@ -1061,6 +1061,8 @@ export default function BenchmarkSubmission() {
         </TabsContent>
       </Tabs>
 
+      <NewsletterSignup />
+
       <div className="mt-8 pt-6 border-t text-center">
         <a 
           href="https://www.cooperationbenchmark.org" 
@@ -1072,6 +1074,75 @@ export default function BenchmarkSubmission() {
           www.cooperationbenchmark.org
         </a>
       </div>
+    </div>
+  );
+}
+
+function NewsletterSignup() {
+  const { toast } = useToast();
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const subscribeMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/newsletter/subscribe", { email: email.trim(), name: name.trim() || undefined });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setSubmitted(true);
+      toast({ title: "Subscribed!", description: data.message ?? "You're on the list." });
+    },
+    onError: (err) => {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to subscribe", variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="mt-10 rounded-xl border bg-muted/30 px-6 py-8 text-center space-y-4" data-testid="newsletter-signup-section">
+      <div className="space-y-1">
+        <h3 className="text-lg font-semibold">Stay in the loop</h3>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          Get a weekly digest of new AI model comparisons, benchmark updates, new datasets, and platform features.
+        </p>
+      </div>
+      {submitted ? (
+        <div className="flex items-center justify-center gap-2 text-sm font-medium text-green-600 dark:text-green-400" data-testid="text-subscribed-success">
+          <CheckCircle2 className="h-4 w-4" />
+          You're subscribed! Check your inbox for a welcome email.
+        </div>
+      ) : (
+        <form
+          className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto"
+          onSubmit={e => { e.preventDefault(); if (email.trim()) subscribeMutation.mutate(); }}
+        >
+          <Input
+            type="text"
+            placeholder="Your name (optional)"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            className="sm:w-36 shrink-0"
+            data-testid="input-newsletter-name"
+          />
+          <Input
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            required
+            className="flex-1"
+            data-testid="input-newsletter-email"
+          />
+          <Button
+            type="submit"
+            disabled={subscribeMutation.isPending || !email.trim()}
+            data-testid="button-newsletter-subscribe"
+          >
+            {subscribeMutation.isPending ? "Subscribing…" : "Subscribe"}
+          </Button>
+        </form>
+      )}
+      <p className="text-xs text-muted-foreground">No spam. Unsubscribe any time.</p>
     </div>
   );
 }

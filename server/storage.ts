@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql, ilike, count, inArray, gte, lt } from "drizzle-orm";
@@ -157,6 +157,12 @@ export interface IStorage {
   deleteWargame(id: string): Promise<void>;
   // Paginated history
   getRunsHistory(opts: { page: number; limit: number; search?: string }): Promise<{ items: Array<{ run: Run; session: Session }>; total: number }>;
+  // Newsletter methods
+  createNewsletterSubscriber(data: InsertNewsletterSubscriber): Promise<NewsletterSubscriber>;
+  getNewsletterSubscribers(): Promise<NewsletterSubscriber[]>;
+  getNewsletterSubscriberByEmail(email: string): Promise<NewsletterSubscriber | undefined>;
+  getNewsletterSubscriberByToken(token: string): Promise<NewsletterSubscriber | undefined>;
+  unsubscribeNewsletter(token: string): Promise<void>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -1273,6 +1279,53 @@ export class DatabaseStorage implements IStorage {
   async deletePhysioBySession(sessionId: string): Promise<void> {
     await db.delete(physioData).where(eq(physioData.sessionId, sessionId));
   }
+
+  async createNewsletterSubscriber(data: InsertNewsletterSubscriber): Promise<NewsletterSubscriber> {
+    const id = randomUUID();
+    const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+    const result = await db.insert(newsletterSubscribers).values({
+      id,
+      email: data.email,
+      name: data.name ?? null,
+      topics: data.topics ?? [],
+      status: "active",
+      unsubscribeToken: token,
+    }).returning();
+    return dbSubscriberToSubscriber(result[0]);
+  }
+
+  async getNewsletterSubscribers(): Promise<NewsletterSubscriber[]> {
+    const result = await db.select().from(newsletterSubscribers).orderBy(desc(newsletterSubscribers.createdAt));
+    return result.map(dbSubscriberToSubscriber);
+  }
+
+  async getNewsletterSubscriberByEmail(email: string): Promise<NewsletterSubscriber | undefined> {
+    const result = await db.select().from(newsletterSubscribers).where(eq(newsletterSubscribers.email, email.toLowerCase()));
+    return result[0] ? dbSubscriberToSubscriber(result[0]) : undefined;
+  }
+
+  async getNewsletterSubscriberByToken(token: string): Promise<NewsletterSubscriber | undefined> {
+    const result = await db.select().from(newsletterSubscribers).where(eq(newsletterSubscribers.unsubscribeToken, token));
+    return result[0] ? dbSubscriberToSubscriber(result[0]) : undefined;
+  }
+
+  async unsubscribeNewsletter(token: string): Promise<void> {
+    await db.update(newsletterSubscribers)
+      .set({ status: "unsubscribed" })
+      .where(eq(newsletterSubscribers.unsubscribeToken, token));
+  }
+}
+
+function dbSubscriberToSubscriber(row: typeof newsletterSubscribers.$inferSelect): NewsletterSubscriber {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name ?? undefined,
+    topics: (row.topics as string[]) ?? [],
+    status: row.status as "active" | "unsubscribed",
+    unsubscribeToken: row.unsubscribeToken,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 export const storage = new DatabaseStorage();

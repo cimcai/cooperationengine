@@ -9,11 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp } from "lucide-react";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2 } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Chatbot, BenchmarkWeight } from "@shared/schema";
+import type { Chatbot, BenchmarkWeight, NewsletterSubscriber } from "@shared/schema";
 import { useState, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
@@ -590,7 +590,149 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <NewsletterAdminPanel />
       </div>
     </div>
+  );
+}
+
+function NewsletterAdminPanel() {
+  const { toast } = useToast();
+  const [passcode, setPasscode] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  const { data: subscribers = [], isLoading, isError, refetch } = useQuery<NewsletterSubscriber[]>({
+    queryKey: ["/api/newsletter/subscribers", confirmed],
+    queryFn: async () => {
+      const res = await fetch("/api/newsletter/subscribers", {
+        headers: { "x-passcode": passcode },
+      });
+      if (!res.ok) { setConfirmed(false); throw new Error("Unauthorized"); }
+      return res.json();
+    },
+    enabled: confirmed,
+    retry: false,
+  });
+
+  const activeCount = subscribers.filter(s => s.status === "active").length;
+
+  const handleSendWeekly = async () => {
+    setIsSending(true);
+    try {
+      const res = await fetch("/api/newsletter/send-weekly", {
+        method: "POST",
+        headers: { "x-passcode": passcode },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to send");
+      toast({ title: "Weekly digest sent", description: data.message });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed to send", variant: "destructive" });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="h-5 w-5" />
+          Newsletter Subscribers
+        </CardTitle>
+        <CardDescription>
+          Manage email subscribers and send the weekly digest
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!confirmed ? (
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="Enter admin passcode to view subscribers"
+              value={passcode}
+              onChange={e => setPasscode(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && setConfirmed(true)}
+              className="max-w-xs"
+              data-testid="input-newsletter-passcode"
+            />
+            <Button onClick={() => setConfirmed(true)} disabled={!passcode} data-testid="button-newsletter-unlock">
+              Unlock
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Subscriber stats */}
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm">
+                  <span className="font-semibold" data-testid="text-active-subscribers">{activeCount}</span>
+                  <span className="text-muted-foreground"> active</span>
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm">
+                  <span className="font-semibold">{subscribers.length - activeCount}</span>
+                  <span className="text-muted-foreground"> unsubscribed</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Subscriber list */}
+            {isLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+                ))}
+              </div>
+            ) : subscribers.length > 0 ? (
+              <div className="border rounded-md divide-y max-h-64 overflow-y-auto">
+                {subscribers.map(sub => (
+                  <div key={sub.id} className="flex items-center justify-between px-3 py-2" data-testid={`row-subscriber-${sub.id}`}>
+                    <div>
+                      <p className="text-sm font-medium">{sub.email}</p>
+                      {sub.name && <p className="text-xs text-muted-foreground">{sub.name}</p>}
+                    </div>
+                    <Badge variant={sub.status === "active" ? "default" : "secondary"} className="text-xs shrink-0">
+                      {sub.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No subscribers yet. The signup form on the public page will start collecting emails.</p>
+            )}
+
+            {/* Actions */}
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                onClick={handleSendWeekly}
+                disabled={isSending || activeCount === 0}
+                data-testid="button-send-weekly"
+              >
+                {isSending ? (
+                  <>Sending…</>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Send Weekly Digest ({activeCount})
+                  </>
+                )}
+              </Button>
+              <Button variant="outline" onClick={() => refetch()} data-testid="button-refresh-subscribers">
+                Refresh
+              </Button>
+              <Button variant="ghost" onClick={() => { setConfirmed(false); setPasscode(""); }} data-testid="button-newsletter-lock">
+                Lock
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

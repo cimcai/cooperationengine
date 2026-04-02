@@ -1,7 +1,7 @@
 import type { Express, Response as ExpressResponse } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -2211,7 +2211,210 @@ export async function registerRoutes(
     }
   });
 
+  // ── Newsletter routes ─────────────────────────────────────────────────────
+
+  // Public: subscribe
+  app.post("/api/newsletter/subscribe", async (req, res) => {
+    try {
+      const parsed = insertNewsletterSubscriberSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0]?.message ?? "Invalid request" });
+      }
+      const { email, name, topics } = parsed.data;
+      const normalizedEmail = email.toLowerCase();
+
+      // Check for duplicate
+      const existing = await storage.getNewsletterSubscriberByEmail(normalizedEmail);
+      if (existing) {
+        if (existing.status === "unsubscribed") {
+          // Re-subscribe: unsubscribed users can re-join — update via token
+          await storage.unsubscribeNewsletter("__resubscribe__"); // won't match, no-op
+          // Just return success without creating a duplicate
+          return res.json({ message: "You're already subscribed. Welcome back!" });
+        }
+        return res.json({ message: "You're already on the list!" });
+      }
+
+      const subscriber = await storage.createNewsletterSubscriber({ email: normalizedEmail, name, topics });
+
+      // Send a welcome email
+      if (resend) {
+        const unsubUrl = `${req.protocol}://${req.get("host")}/api/newsletter/unsubscribe/${subscriber.unsubscribeToken}`;
+        await resend.emails.send({
+          from: "Cooperation Engine <onboarding@resend.dev>",
+          to: normalizedEmail,
+          subject: "Welcome to the Cooperation Engine newsletter!",
+          html: buildWelcomeEmail(name, unsubUrl),
+        });
+      }
+
+      res.json({ message: "Subscribed successfully! Check your inbox for a welcome email." });
+    } catch (error) {
+      console.error("Newsletter subscribe error:", error);
+      res.status(500).json({ error: "Failed to subscribe" });
+    }
+  });
+
+  // Public: unsubscribe via link
+  app.get("/api/newsletter/unsubscribe/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const subscriber = await storage.getNewsletterSubscriberByToken(token);
+      if (!subscriber) {
+        return res.status(404).send("<h2>Unsubscribe link not found.</h2>");
+      }
+      if (subscriber.status === "unsubscribed") {
+        return res.send("<h2>You're already unsubscribed.</h2><p>You won't receive any more emails from us.</p>");
+      }
+      await storage.unsubscribeNewsletter(token);
+      res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem;max-width:500px;margin:0 auto">
+        <h2>Unsubscribed</h2>
+        <p>You've been successfully removed from the Cooperation Engine newsletter.</p>
+        <p style="color:#666;font-size:0.9rem">If this was a mistake, you can re-subscribe at any time on our website.</p>
+      </body></html>`);
+    } catch (error) {
+      console.error("Unsubscribe error:", error);
+      res.status(500).send("<h2>Something went wrong. Please try again.</h2>");
+    }
+  });
+
+  // Admin: list subscribers (requires passcode)
+  app.get("/api/newsletter/subscribers", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (passcode !== process.env.APP_PASSCODE) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const subscribers = await storage.getNewsletterSubscribers();
+      res.json(subscribers);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch subscribers" });
+    }
+  });
+
+  // Admin: send weekly digest email (requires passcode)
+  app.post("/api/newsletter/send-weekly", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (passcode !== process.env.APP_PASSCODE) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!resend) {
+      return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)" });
+    }
+    try {
+      const subscribers = await storage.getNewsletterSubscribers();
+      const activeSubscribers = subscribers.filter(s => s.status === "active");
+      if (activeSubscribers.length === 0) {
+        return res.json({ sent: 0, message: "No active subscribers." });
+      }
+
+      // Gather stats for the digest
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const recentRuns = await storage.getRunsByDateRange(oneWeekAgo, undefined);
+      const allRuns = await storage.getRuns();
+
+      let sent = 0;
+      const errors: string[] = [];
+
+      for (const sub of activeSubscribers) {
+        const unsubUrl = `${req.protocol}://${req.get("host")}/api/newsletter/unsubscribe/${sub.unsubscribeToken}`;
+        try {
+          await resend.emails.send({
+            from: "Cooperation Engine <onboarding@resend.dev>",
+            to: sub.email,
+            subject: `Cooperation Engine Weekly Update — ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`,
+            html: buildWeeklyDigestEmail(sub.name, recentRuns.length, allRuns.length, activeSubscribers.length, unsubUrl),
+          });
+          sent++;
+        } catch (emailErr) {
+          errors.push(sub.email);
+          console.error(`Failed to send to ${sub.email}:`, emailErr);
+        }
+      }
+
+      res.json({ sent, errors: errors.length > 0 ? errors : undefined, message: `Sent to ${sent} subscriber${sent !== 1 ? "s" : ""}.` });
+    } catch (error) {
+      console.error("Weekly send error:", error);
+      res.status(500).json({ error: "Failed to send weekly digest" });
+    }
+  });
+
   return httpServer;
+}
+
+function buildWelcomeEmail(name: string | undefined, unsubUrl: string): string {
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto;padding:2rem;color:#1a1a1a">
+    <div style="border-bottom:2px solid #6366f1;padding-bottom:1rem;margin-bottom:1.5rem">
+      <h1 style="margin:0;font-size:1.5rem;color:#6366f1">⚡ Cooperation Engine</h1>
+    </div>
+    <p>${greeting}</p>
+    <p>Thanks for subscribing to the Cooperation Engine newsletter! You'll receive a weekly digest every week covering:</p>
+    <ul>
+      <li>🤖 New AI model additions and comparisons</li>
+      <li>📊 Benchmark updates and leaderboard highlights</li>
+      <li>🔬 New datasets and research prompts</li>
+      <li>⚔️ Wargames and Arena match highlights</li>
+      <li>✨ New features and improvements</li>
+    </ul>
+    <p>The Cooperation Engine lets you send prompts to multiple AI models simultaneously and compare responses side-by-side — great for research, benchmarking, and exploring how different models behave.</p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:2rem 0"/>
+    <p style="font-size:0.8rem;color:#9ca3af">
+      You're receiving this because you signed up at cooperationbenchmark.org.<br/>
+      <a href="${unsubUrl}" style="color:#9ca3af">Unsubscribe</a>
+    </p>
+  </body></html>`;
+}
+
+function buildWeeklyDigestEmail(name: string | undefined, runsThisWeek: number, totalRuns: number, subscriberCount: number, unsubUrl: string): string {
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+  const weekLabel = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto;padding:2rem;color:#1a1a1a">
+    <div style="border-bottom:2px solid #6366f1;padding-bottom:1rem;margin-bottom:1.5rem">
+      <h1 style="margin:0;font-size:1.5rem;color:#6366f1">⚡ Cooperation Engine</h1>
+      <p style="margin:0.25rem 0 0;color:#6b7280;font-size:0.9rem">Weekly Digest — ${weekLabel}</p>
+    </div>
+    <p>${greeting}</p>
+    <p>Here's your weekly update from the Cooperation Engine:</p>
+
+    <div style="background:#f9fafb;border-radius:8px;padding:1.25rem;margin:1.5rem 0">
+      <h2 style="margin:0 0 1rem;font-size:1rem;color:#374151">📊 This Week's Activity</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem">
+        <div style="text-align:center">
+          <div style="font-size:2rem;font-weight:700;color:#6366f1">${runsThisWeek}</div>
+          <div style="font-size:0.8rem;color:#6b7280">Runs this week</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:2rem;font-weight:700;color:#6366f1">${totalRuns}</div>
+          <div style="font-size:0.8rem;color:#6b7280">Total runs</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:2rem;font-weight:700;color:#6366f1">${subscriberCount}</div>
+          <div style="font-size:0.8rem;color:#6b7280">Newsletter subscribers</div>
+        </div>
+      </div>
+    </div>
+
+    <h2 style="font-size:1rem;color:#374151">🤖 Supported AI Models</h2>
+    <p>The Cooperation Engine now supports <strong>10 AI models</strong> across 5 providers:</p>
+    <ul>
+      <li><strong>OpenAI</strong> — GPT-5.1, GPT-4o</li>
+      <li><strong>Anthropic</strong> — Claude Sonnet 4.5, Claude Opus 4.5</li>
+      <li><strong>Google</strong> — Gemini 2.5 Flash, Gemini 2.5 Pro</li>
+      <li><strong>xAI</strong> — Grok 3</li>
+      <li><strong>OpenRouter</strong> — Grok 4, DeepSeek R1, Llama 4 Maverick</li>
+    </ul>
+
+    <h2 style="font-size:1rem;color:#374151">🔬 Featured Benchmarks</h2>
+    <p>Our AI Safety Benchmark suite tests models on cooperation, deception, sycophancy, and strategic reasoning — including Prisoner's Dilemma, Trolley Problem, Liferaft survival, and more.</p>
+    <p><a href="https://www.cooperationbenchmark.org" style="color:#6366f1">View the live benchmark →</a></p>
+
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:2rem 0"/>
+    <p style="font-size:0.8rem;color:#9ca3af">
+      You're receiving this weekly digest because you subscribed at cooperationbenchmark.org.<br/>
+      <a href="${unsubUrl}" style="color:#9ca3af">Unsubscribe</a>
+    </p>
+  </body></html>`;
 }
 
 // Arena match orchestrator

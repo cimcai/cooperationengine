@@ -56,6 +56,15 @@ Preferred communication style: Simple, everyday language.
 - **API**: `GET /api/cost-analytics` aggregates token usage, supports `?from=YYYY-MM-DD&to=YYYY-MM-DD` date filtering, returns per-model breakdowns + `dailyTrend` array
 - **UI**: Cost Analytics card on the Settings page (`client/src/pages/settings.tsx`) with date preset selector (Today/7d/30d/All/Custom), recharts stacked BarChart for daily cost trend, and per-model breakdown
 
+### Newsletter / Email Updates
+- **Table**: `newsletter_subscribers` stores email, optional name, topics, status (active/unsubscribed), unsubscribeToken, createdAt
+- **Public signup form**: `benchmark-submission.tsx` (public page at `/`) has a "Stay in the loop" section with name + email inputs
+- **Welcome email**: Sent via Resend on successful subscription
+- **Unsubscribe**: `GET /api/newsletter/unsubscribe/:token` — renders HTML confirmation and marks subscriber as unsubscribed
+- **Admin panel**: Settings page → "Newsletter Subscribers" card — enter admin passcode to unlock, view all subscribers, send weekly digest
+- **Weekly digest**: `POST /api/newsletter/send-weekly` — pulls real stats (runs this week, total runs, subscriber count), sends branded HTML email to all active subscribers
+- **Duplicate handling**: Re-subscribing an existing active email returns a friendly "already on the list" message
+
 ### Draft Autosave
 - **Storage**: `compose_draft` localStorage key persists title, prompts, selected chatbots, evaluation settings
 - **Debounce**: 2-second debounce autosave on any change; cleared on successful run submission or reset

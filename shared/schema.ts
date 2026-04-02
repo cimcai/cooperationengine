@@ -718,3 +718,32 @@ export const insertConstructSchema = z.object({
 });
 
 export type InsertConstruct = z.infer<typeof insertConstructSchema>;
+
+// Newsletter subscribers table
+export const newsletterSubscribers = pgTable("newsletter_subscribers", {
+  id: varchar("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  name: varchar("name", { length: 255 }),
+  topics: jsonb("topics").$type<string[]>().default([]),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  unsubscribeToken: varchar("unsubscribe_token", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface NewsletterSubscriber {
+  id: string;
+  email: string;
+  name?: string;
+  topics: string[];
+  status: "active" | "unsubscribed";
+  unsubscribeToken: string;
+  createdAt: string;
+}
+
+export const insertNewsletterSubscriberSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  name: z.string().optional(),
+  topics: z.array(z.string()).optional().default([]),
+});
+
+export type InsertNewsletterSubscriber = z.infer<typeof insertNewsletterSubscriberSchema>;
