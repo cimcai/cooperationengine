@@ -9,6 +9,7 @@ import { Resend } from "resend";
 import archiver from "archiver";
 import { readFileSync } from "fs";
 import { join } from "path";
+import cron from "node-cron";
 import { ESCALATION_LADDER, scenarioConfigs, escalationBeats } from "./wargameConfig";
 
 // Read app version from package.json once at startup
@@ -2302,36 +2303,8 @@ export async function registerRoutes(
       return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)" });
     }
     try {
-      const subscribers = await storage.getNewsletterSubscribers();
-      const activeSubscribers = subscribers.filter(s => s.status === "active");
-      if (activeSubscribers.length === 0) {
-        return res.json({ sent: 0, message: "No active subscribers." });
-      }
-
-      // Gather stats for the digest
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const recentRuns = await storage.getRunsByDateRange(oneWeekAgo, undefined);
-      const allRuns = await storage.getRuns();
-
-      let sent = 0;
-      const errors: string[] = [];
-
-      for (const sub of activeSubscribers) {
-        const unsubUrl = `${req.protocol}://${req.get("host")}/api/newsletter/unsubscribe/${sub.unsubscribeToken}`;
-        try {
-          await resend.emails.send({
-            from: "Cooperation Engine <onboarding@resend.dev>",
-            to: sub.email,
-            subject: `Cooperation Engine Weekly Update — ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`,
-            html: buildWeeklyDigestEmail(sub.name, recentRuns.length, allRuns.length, activeSubscribers.length, unsubUrl),
-          });
-          sent++;
-        } catch (emailErr) {
-          errors.push(sub.email);
-          console.error(`Failed to send to ${sub.email}:`, emailErr);
-        }
-      }
-
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const { sent, errors } = await sendWeeklyDigestToAll(baseUrl);
       res.json({ sent, errors: errors.length > 0 ? errors : undefined, message: `Sent to ${sent} subscriber${sent !== 1 ? "s" : ""}.` });
     } catch (error) {
       console.error("Weekly send error:", error);
@@ -2339,7 +2312,52 @@ export async function registerRoutes(
     }
   });
 
+  // Schedule automatic weekly digest — every Monday at 9:00 AM UTC
+  const BASE_URL = process.env.APP_BASE_URL || "https://cooperationbenchmark.org";
+  cron.schedule("0 9 * * 1", async () => {
+    if (!resend) return;
+    console.log("[newsletter] Running scheduled weekly digest...");
+    try {
+      const { sent, errors } = await sendWeeklyDigestToAll(BASE_URL);
+      console.log(`[newsletter] Scheduled digest sent to ${sent} subscriber(s). Errors: ${errors.length}`);
+    } catch (err) {
+      console.error("[newsletter] Scheduled digest failed:", err);
+    }
+  }, { timezone: "UTC" });
+
   return httpServer;
+}
+
+async function sendWeeklyDigestToAll(baseUrl: string): Promise<{ sent: number; errors: string[] }> {
+  if (!resend) return { sent: 0, errors: [] };
+  const subscribers = await storage.getNewsletterSubscribers();
+  const activeSubscribers = subscribers.filter(s => s.status === "active");
+  if (activeSubscribers.length === 0) return { sent: 0, errors: [] };
+
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const recentRuns = await storage.getRunsByDateRange(oneWeekAgo, undefined);
+  const allRuns = await storage.getRuns();
+
+  let sent = 0;
+  const errors: string[] = [];
+
+  for (const sub of activeSubscribers) {
+    const unsubUrl = `${baseUrl}/api/newsletter/unsubscribe/${sub.unsubscribeToken}`;
+    try {
+      await resend.emails.send({
+        from: "Cooperation Engine <onboarding@resend.dev>",
+        to: sub.email,
+        subject: `Cooperation Engine Weekly Update — ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`,
+        html: buildWeeklyDigestEmail(sub.name, recentRuns.length, allRuns.length, activeSubscribers.length, unsubUrl),
+      });
+      sent++;
+    } catch (emailErr) {
+      errors.push(sub.email);
+      console.error(`Failed to send digest to ${sub.email}:`, emailErr);
+    }
+  }
+
+  return { sent, errors };
 }
 
 function buildWelcomeEmail(name: string | undefined, unsubUrl: string): string {

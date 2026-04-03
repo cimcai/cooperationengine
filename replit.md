@@ -62,7 +62,7 @@ Preferred communication style: Simple, everyday language.
 - **Welcome email**: Sent via Resend on successful subscription
 - **Unsubscribe**: `GET /api/newsletter/unsubscribe/:token` — renders HTML confirmation and marks subscriber as unsubscribed
 - **Admin panel**: Settings page → "Newsletter Subscribers" card — enter admin passcode to unlock, view all subscribers, send weekly digest
-- **Weekly digest**: `POST /api/newsletter/send-weekly` — pulls real stats (runs this week, total runs, subscriber count), sends branded HTML email to all active subscribers
+- **Weekly digest**: `POST /api/newsletter/send-weekly` — pulls real stats (runs this week, total runs, subscriber count), sends branded HTML email to all active subscribers; also runs **automatically every Monday at 9:00 AM UTC** via `node-cron` (uses `APP_BASE_URL` env var or falls back to `https://cooperationbenchmark.org` for unsubscribe links)
 - **Duplicate handling**: Re-subscribing an existing active email returns a friendly "already on the list" message
 
 ### Draft Autosave
