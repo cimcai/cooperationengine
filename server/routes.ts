@@ -2343,8 +2343,26 @@ export async function registerRoutes(
     } catch { res.status(500).json({ error: "Failed to delete story recipient" }); }
   });
 
-  // Send story emails for a specific recipient: search all genesis/life-raft/apocalypse
-  // run final responses for mentions of that person's name, then email them.
+  // Preview the best story for a recipient (no email sent)
+  app.get("/api/story-recipients/:id/preview-stories", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+
+    const recipients = await storage.getStoryRecipients();
+    const recipient = recipients.find(r => r.id === req.params.id);
+    if (!recipient) return res.status(404).json({ error: "Recipient not found" });
+
+    try {
+      const stories = await findStoriesForRecipient(recipient.name);
+      const best = stories[0] ?? null;
+      res.json({ found: !!best, total: stories.length, best });
+    } catch (err) {
+      console.error("Preview stories error:", err);
+      res.status(500).json({ error: "Failed to find stories" });
+    }
+  });
+
+  // Send the single best story to a recipient
   app.post("/api/story-recipients/:id/send-stories", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
     if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
@@ -2355,68 +2373,22 @@ export async function registerRoutes(
     if (!recipient) return res.status(404).json({ error: "Recipient not found" });
 
     try {
-      const allRuns = await storage.getRuns();
-      const allSessions = await storage.getSessions();
-      const sessionMap = new Map(allSessions.map(s => [s.id, s]));
+      const stories = await findStoriesForRecipient(recipient.name);
+      const best = stories[0];
 
-      const storyKeywords = ["genesis", "apocalypse", "life raft", "liferaft", "pluribus", "davos", "survival"];
-
-      const matchedExcerpts: { aiName: string; sessionTitle: string; excerpt: string }[] = [];
-      const nameLower = recipient.name.toLowerCase();
-      const firstNameLower = recipient.name.split(" ")[0].toLowerCase();
-
-      for (const run of allRuns) {
-        if (run.status !== "completed") continue;
-        const session = sessionMap.get(run.sessionId);
-        if (!session) continue;
-        const titleLower = session.title.toLowerCase();
-        const isStoryTemplate = storyKeywords.some(kw => titleLower.includes(kw));
-        if (!isStoryTemplate) continue;
-
-        // Find the highest stepOrder response per chatbot (the final narrative)
-        const finalPerBot = new Map<string, typeof run.responses[0]>();
-        for (const resp of run.responses) {
-          if (resp.error || resp.isEvaluation) continue;
-          const existing = finalPerBot.get(resp.chatbotId);
-          if (!existing || resp.stepOrder > existing.stepOrder) {
-            finalPerBot.set(resp.chatbotId, resp);
-          }
-        }
-
-        for (const [chatbotId, resp] of finalPerBot) {
-          const contentLower = resp.content.toLowerCase();
-          if (!contentLower.includes(nameLower) && !contentLower.includes(firstNameLower)) continue;
-
-          // Try to extract the best-outcome or survival-story section
-          let excerpt = resp.content;
-          const bestCaseMatch = resp.content.match(/=== BEST CASE OUTCOME[\s\S]{0,3000}/i);
-          const survivalMatch = resp.content.match(/SURVIVAL STORY[\s\S]{0,3000}/i);
-          const bestOutcomeMatch = resp.content.match(/BEST.{0,10}OUTCOME[\s\S]{0,3000}/i);
-
-          if (bestCaseMatch) excerpt = bestCaseMatch[0].slice(0, 2500);
-          else if (survivalMatch) excerpt = survivalMatch[0].slice(0, 2500);
-          else if (bestOutcomeMatch) excerpt = bestOutcomeMatch[0].slice(0, 2500);
-          else excerpt = resp.content.slice(0, 2500);
-
-          const chatbot = availableChatbots.find(c => c.id === chatbotId);
-          const aiName = chatbot?.displayName ?? chatbotId;
-          matchedExcerpts.push({ aiName, sessionTitle: session.title, excerpt });
-        }
-      }
-
-      if (matchedExcerpts.length === 0) {
+      if (!best) {
         return res.json({ sent: false, message: `No AI stories mentioning "${recipient.name}" were found in any genesis or apocalypse run.` });
       }
 
-      const html = buildStoryEmail(recipient.name, matchedExcerpts);
+      const html = buildStoryEmail(recipient.name, [best]);
       await resend.emails.send({
         from: "Cooperation Engine <onboarding@resend.dev>",
         to: recipient.email,
-        subject: `Your survival story — what the AIs imagined for ${recipient.name}`,
+        subject: `Your survival story — what ${best.aiName} imagined for ${recipient.name}`,
         html,
       });
 
-      res.json({ sent: true, count: matchedExcerpts.length, message: `Sent ${matchedExcerpts.length} story excerpt${matchedExcerpts.length !== 1 ? "s" : ""} to ${recipient.email}.` });
+      res.json({ sent: true, message: `Sent the best story (by ${best.aiName}) to ${recipient.email}.` });
     } catch (err) {
       console.error("Send stories error:", err);
       res.status(500).json({ error: "Failed to send story email" });
@@ -2544,6 +2516,52 @@ function buildWeeklyDigestEmail(name: string | undefined, runsThisWeek: number, 
       <a href="${unsubUrl}" style="color:#9ca3af">Unsubscribe</a>
     </p>
   </body></html>`;
+}
+
+async function findStoriesForRecipient(recipientName: string): Promise<{ aiName: string; sessionTitle: string; excerpt: string; runId: string }[]> {
+  const allRuns = await storage.getRuns();
+  const allSessions = await storage.getSessions();
+  const sessionMap = new Map(allSessions.map(s => [s.id, s]));
+  const storyKeywords = ["genesis", "apocalypse", "life raft", "liferaft", "pluribus", "davos", "survival"];
+  const nameLower = recipientName.toLowerCase();
+  const firstNameLower = recipientName.split(" ")[0].toLowerCase();
+  const results: { aiName: string; sessionTitle: string; excerpt: string; runId: string }[] = [];
+
+  for (const run of allRuns) {
+    if (run.status !== "completed") continue;
+    const session = sessionMap.get(run.sessionId);
+    if (!session) continue;
+    const titleLower = session.title.toLowerCase();
+    if (!storyKeywords.some(kw => titleLower.includes(kw))) continue;
+
+    const finalPerBot = new Map<string, typeof run.responses[0]>();
+    for (const resp of run.responses) {
+      if (resp.error || resp.isEvaluation) continue;
+      const existing = finalPerBot.get(resp.chatbotId);
+      if (!existing || resp.stepOrder > existing.stepOrder) finalPerBot.set(resp.chatbotId, resp);
+    }
+
+    for (const [chatbotId, resp] of finalPerBot) {
+      const contentLower = resp.content.toLowerCase();
+      if (!contentLower.includes(nameLower) && !contentLower.includes(firstNameLower)) continue;
+
+      let excerpt = resp.content;
+      const bestCaseMatch = resp.content.match(/=== BEST CASE OUTCOME[\s\S]{0,3000}/i);
+      const survivalMatch = resp.content.match(/SURVIVAL STORY[\s\S]{0,3000}/i);
+      const bestOutcomeMatch = resp.content.match(/BEST.{0,10}OUTCOME[\s\S]{0,3000}/i);
+
+      if (bestCaseMatch) excerpt = bestCaseMatch[0].slice(0, 2500);
+      else if (survivalMatch) excerpt = survivalMatch[0].slice(0, 2500);
+      else if (bestOutcomeMatch) excerpt = bestOutcomeMatch[0].slice(0, 2500);
+      else excerpt = resp.content.slice(0, 2500);
+
+      const chatbot = availableChatbots.find(c => c.id === chatbotId);
+      results.push({ aiName: chatbot?.displayName ?? chatbotId, sessionTitle: session.title, excerpt, runId: run.id });
+    }
+  }
+
+  // Return sorted by excerpt length descending (longest = richest story)
+  return results.sort((a, b) => b.excerpt.length - a.excerpt.length);
 }
 
 function buildStoryEmail(name: string, excerpts: { aiName: string; sessionTitle: string; excerpt: string }[]): string {
