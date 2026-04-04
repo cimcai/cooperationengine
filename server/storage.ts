@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, type StoryRecipient, type InsertStoryRecipient, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers, storyRecipients } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql, ilike, count, inArray, gte, lt } from "drizzle-orm";
@@ -163,6 +163,10 @@ export interface IStorage {
   getNewsletterSubscriberByEmail(email: string): Promise<NewsletterSubscriber | undefined>;
   getNewsletterSubscriberByToken(token: string): Promise<NewsletterSubscriber | undefined>;
   unsubscribeNewsletter(token: string): Promise<void>;
+  // Story recipients methods
+  getStoryRecipients(): Promise<StoryRecipient[]>;
+  createStoryRecipient(data: InsertStoryRecipient): Promise<StoryRecipient>;
+  deleteStoryRecipient(id: string): Promise<void>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -1313,6 +1317,22 @@ export class DatabaseStorage implements IStorage {
     await db.update(newsletterSubscribers)
       .set({ status: "unsubscribed" })
       .where(eq(newsletterSubscribers.unsubscribeToken, token));
+  }
+
+  async getStoryRecipients(): Promise<StoryRecipient[]> {
+    const result = await db.select().from(storyRecipients).orderBy(desc(storyRecipients.createdAt));
+    return result.map(r => ({ id: r.id, name: r.name, email: r.email, createdAt: r.createdAt.toISOString() }));
+  }
+
+  async createStoryRecipient(data: InsertStoryRecipient): Promise<StoryRecipient> {
+    const id = randomUUID();
+    const result = await db.insert(storyRecipients).values({ id, name: data.name, email: data.email }).returning();
+    const r = result[0];
+    return { id: r.id, name: r.name, email: r.email, createdAt: r.createdAt.toISOString() };
+  }
+
+  async deleteStoryRecipient(id: string): Promise<void> {
+    await db.delete(storyRecipients).where(eq(storyRecipients.id, id));
   }
 }
 

@@ -9,11 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2 } from "lucide-react";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2, Plus, BookOpen } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Chatbot, BenchmarkWeight, NewsletterSubscriber } from "@shared/schema";
+import type { Chatbot, BenchmarkWeight, NewsletterSubscriber, StoryRecipient } from "@shared/schema";
 import { useState, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
@@ -592,8 +592,196 @@ export default function SettingsPage() {
         </Card>
 
         <NewsletterAdminPanel />
+        <StoryRecipientsPanel />
       </div>
     </div>
+  );
+}
+
+function StoryRecipientsPanel() {
+  const { toast } = useToast();
+  const [passcode, setPasscode] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+
+  const { data: recipients = [], isLoading, refetch } = useQuery<StoryRecipient[]>({
+    queryKey: ["/api/story-recipients", confirmed],
+    queryFn: async () => {
+      const res = await fetch("/api/story-recipients", { headers: { "x-passcode": passcode } });
+      if (!res.ok) { setConfirmed(false); throw new Error("Unauthorized"); }
+      return res.json();
+    },
+    enabled: confirmed,
+    retry: false,
+  });
+
+  const handleAdd = async () => {
+    if (!newName.trim() || !newEmail.trim()) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/story-recipients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-passcode": passcode },
+        body: JSON.stringify({ name: newName.trim(), email: newEmail.trim() }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed"); }
+      setNewName(""); setNewEmail("");
+      refetch();
+      toast({ title: "Recipient added" });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    } finally { setAdding(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await fetch(`/api/story-recipients/${id}`, {
+        method: "DELETE",
+        headers: { "x-passcode": passcode },
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      refetch();
+      toast({ title: "Recipient removed" });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    }
+  };
+
+  const handleSendStories = async (recipient: StoryRecipient) => {
+    setSendingId(recipient.id);
+    try {
+      const res = await fetch(`/api/story-recipients/${recipient.id}/send-stories`, {
+        method: "POST",
+        headers: { "x-passcode": passcode },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to send");
+      toast({ title: data.sent ? "Stories sent!" : "No stories found", description: data.message });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    } finally { setSendingId(null); }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BookOpen className="h-5 w-5" />
+          Story Recipients
+        </CardTitle>
+        <CardDescription>
+          Email AI survival story excerpts to real people who appear in Genesis / Apocalypse scenarios
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!confirmed ? (
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="Enter admin passcode to manage recipients"
+              value={passcode}
+              onChange={e => setPasscode(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && setConfirmed(true)}
+              className="max-w-xs"
+              data-testid="input-story-passcode"
+            />
+            <Button onClick={() => setConfirmed(true)} disabled={!passcode} data-testid="button-story-unlock">
+              Unlock
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Add recipient form */}
+            <div className="flex gap-2 flex-wrap">
+              <Input
+                placeholder="Person's name (e.g. Jahn Ballard)"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                className="max-w-[200px]"
+                data-testid="input-story-name"
+              />
+              <Input
+                placeholder="Email address"
+                value={newEmail}
+                onChange={e => setNewEmail(e.target.value)}
+                className="max-w-[220px]"
+                data-testid="input-story-email"
+              />
+              <Button
+                onClick={handleAdd}
+                disabled={adding || !newName.trim() || !newEmail.trim()}
+                data-testid="button-story-add"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                {adding ? "Adding…" : "Add"}
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              When you click "Send Stories," the app searches all completed genesis, apocalypse, and life raft runs for the final AI narrative responses that mention this person's name — then emails them those excerpts.
+            </p>
+
+            {/* Recipient list */}
+            {isLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map(i => <div key={i} className="h-10 bg-muted animate-pulse rounded" />)}
+              </div>
+            ) : recipients.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No recipients yet. Add a person above.</p>
+            ) : (
+              <div className="border rounded-md divide-y">
+                {recipients.map(r => (
+                  <div key={r.id} className="flex items-center justify-between px-3 py-2 gap-2" data-testid={`row-story-recipient-${r.id}`}>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{r.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{r.email}</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSendStories(r)}
+                        disabled={sendingId === r.id}
+                        data-testid={`button-send-stories-${r.id}`}
+                      >
+                        {sendingId === r.id ? (
+                          "Sending…"
+                        ) : (
+                          <>
+                            <Send className="h-3 w-3 mr-1" />
+                            Send Stories
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDelete(r.id)}
+                        data-testid={`button-delete-story-recipient-${r.id}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => refetch()} size="sm" data-testid="button-refresh-story-recipients">
+                Refresh
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setConfirmed(false); setPasscode(""); }} data-testid="button-story-lock">
+                Lock
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -1,7 +1,7 @@
 import type { Express, Response as ExpressResponse } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, insertStoryRecipientSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -2312,6 +2312,117 @@ export async function registerRoutes(
     }
   });
 
+  // ── Story Recipients ─────────────────────────────────────────────────────────
+
+  app.get("/api/story-recipients", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const recipients = await storage.getStoryRecipients();
+      res.json(recipients);
+    } catch { res.status(500).json({ error: "Failed to fetch story recipients" }); }
+  });
+
+  app.post("/api/story-recipients", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    const parsed = insertStoryRecipientSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+    try {
+      const recipient = await storage.createStoryRecipient(parsed.data);
+      res.json(recipient);
+    } catch { res.status(500).json({ error: "Failed to create story recipient" }); }
+  });
+
+  app.delete("/api/story-recipients/:id", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      await storage.deleteStoryRecipient(req.params.id);
+      res.json({ ok: true });
+    } catch { res.status(500).json({ error: "Failed to delete story recipient" }); }
+  });
+
+  // Send story emails for a specific recipient: search all genesis/life-raft/apocalypse
+  // run final responses for mentions of that person's name, then email them.
+  app.post("/api/story-recipients/:id/send-stories", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    if (!resend) return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)" });
+
+    const recipients = await storage.getStoryRecipients();
+    const recipient = recipients.find(r => r.id === req.params.id);
+    if (!recipient) return res.status(404).json({ error: "Recipient not found" });
+
+    try {
+      const allRuns = await storage.getRuns();
+      const allSessions = await storage.getSessions();
+      const sessionMap = new Map(allSessions.map(s => [s.id, s]));
+
+      const storyKeywords = ["genesis", "apocalypse", "life raft", "liferaft", "pluribus", "davos", "survival"];
+
+      const matchedExcerpts: { aiName: string; sessionTitle: string; excerpt: string }[] = [];
+      const nameLower = recipient.name.toLowerCase();
+      const firstNameLower = recipient.name.split(" ")[0].toLowerCase();
+
+      for (const run of allRuns) {
+        if (run.status !== "completed") continue;
+        const session = sessionMap.get(run.sessionId);
+        if (!session) continue;
+        const titleLower = session.title.toLowerCase();
+        const isStoryTemplate = storyKeywords.some(kw => titleLower.includes(kw));
+        if (!isStoryTemplate) continue;
+
+        // Find the highest stepOrder response per chatbot (the final narrative)
+        const finalPerBot = new Map<string, typeof run.responses[0]>();
+        for (const resp of run.responses) {
+          if (resp.error || resp.isEvaluation) continue;
+          const existing = finalPerBot.get(resp.chatbotId);
+          if (!existing || resp.stepOrder > existing.stepOrder) {
+            finalPerBot.set(resp.chatbotId, resp);
+          }
+        }
+
+        for (const [chatbotId, resp] of finalPerBot) {
+          const contentLower = resp.content.toLowerCase();
+          if (!contentLower.includes(nameLower) && !contentLower.includes(firstNameLower)) continue;
+
+          // Try to extract the best-outcome or survival-story section
+          let excerpt = resp.content;
+          const bestCaseMatch = resp.content.match(/=== BEST CASE OUTCOME[\s\S]{0,3000}/i);
+          const survivalMatch = resp.content.match(/SURVIVAL STORY[\s\S]{0,3000}/i);
+          const bestOutcomeMatch = resp.content.match(/BEST.{0,10}OUTCOME[\s\S]{0,3000}/i);
+
+          if (bestCaseMatch) excerpt = bestCaseMatch[0].slice(0, 2500);
+          else if (survivalMatch) excerpt = survivalMatch[0].slice(0, 2500);
+          else if (bestOutcomeMatch) excerpt = bestOutcomeMatch[0].slice(0, 2500);
+          else excerpt = resp.content.slice(0, 2500);
+
+          const chatbot = availableChatbots.find(c => c.id === chatbotId);
+          const aiName = chatbot?.displayName ?? chatbotId;
+          matchedExcerpts.push({ aiName, sessionTitle: session.title, excerpt });
+        }
+      }
+
+      if (matchedExcerpts.length === 0) {
+        return res.json({ sent: false, message: `No AI stories mentioning "${recipient.name}" were found in any genesis or apocalypse run.` });
+      }
+
+      const html = buildStoryEmail(recipient.name, matchedExcerpts);
+      await resend.emails.send({
+        from: "Cooperation Engine <onboarding@resend.dev>",
+        to: recipient.email,
+        subject: `Your survival story — what the AIs imagined for ${recipient.name}`,
+        html,
+      });
+
+      res.json({ sent: true, count: matchedExcerpts.length, message: `Sent ${matchedExcerpts.length} story excerpt${matchedExcerpts.length !== 1 ? "s" : ""} to ${recipient.email}.` });
+    } catch (err) {
+      console.error("Send stories error:", err);
+      res.status(500).json({ error: "Failed to send story email" });
+    }
+  });
+
   // Schedule automatic weekly digest — every Monday at 9:00 AM UTC
   const BASE_URL = process.env.APP_BASE_URL || "https://cooperationbenchmark.org";
   cron.schedule("0 9 * * 1", async () => {
@@ -2432,6 +2543,27 @@ function buildWeeklyDigestEmail(name: string | undefined, runsThisWeek: number, 
       You're receiving this weekly digest because you subscribed at cooperationbenchmark.org.<br/>
       <a href="${unsubUrl}" style="color:#9ca3af">Unsubscribe</a>
     </p>
+  </body></html>`;
+}
+
+function buildStoryEmail(name: string, excerpts: { aiName: string; sessionTitle: string; excerpt: string }[]): string {
+  const blocks = excerpts.map(e => `
+    <div style="border-left:3px solid #6366f1;padding:0.75rem 1rem;margin:1rem 0;background:#f9fafb;border-radius:0 8px 8px 0">
+      <div style="font-size:0.75rem;color:#6b7280;margin-bottom:0.5rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">${e.aiName} — ${e.sessionTitle}</div>
+      <pre style="white-space:pre-wrap;font-family:system-ui,sans-serif;font-size:0.9rem;color:#1a1a1a;margin:0">${e.excerpt.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
+    </div>
+  `).join("");
+
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:2rem;color:#1a1a1a">
+    <div style="border-bottom:2px solid #6366f1;padding-bottom:1rem;margin-bottom:1.5rem">
+      <h1 style="margin:0;font-size:1.5rem;color:#6366f1">⚡ Cooperation Engine</h1>
+      <p style="margin:0.25rem 0 0;color:#6b7280;font-size:0.9rem">AI Survival Stories</p>
+    </div>
+    <p>Hi ${name},</p>
+    <p>You appeared in <strong>${excerpts.length}</strong> AI survival scenario${excerpts.length !== 1 ? "s" : ""}. Here's what the AIs imagined about your role in rebuilding civilization:</p>
+    ${blocks}
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:2rem 0"/>
+    <p style="font-size:0.8rem;color:#9ca3af">Generated by the Cooperation Engine — <a href="https://cooperationbenchmark.org" style="color:#9ca3af">cooperationbenchmark.org</a></p>
   </body></html>`;
 }
 

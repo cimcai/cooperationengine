@@ -65,6 +65,13 @@ Preferred communication style: Simple, everyday language.
 - **Weekly digest**: `POST /api/newsletter/send-weekly` — pulls real stats (runs this week, total runs, subscriber count), sends branded HTML email to all active subscribers; also runs **automatically every Monday at 9:00 AM UTC** via `node-cron` (uses `APP_BASE_URL` env var or falls back to `https://cooperationbenchmark.org` for unsubscribe links)
 - **Duplicate handling**: Re-subscribing an existing active email returns a friendly "already on the list" message
 
+### Story Recipients (Genesis / Apocalypse Email)
+- **Table**: `story_recipients` stores name + email for real people who appear as candidates in Genesis Protocol / Apocalypse scenarios
+- **Admin panel**: Settings page → "Story Recipients" card — enter admin passcode, add/remove people by name + email
+- **Story search**: `POST /api/story-recipients/:id/send-stories` — scans all completed runs of sessions whose titles contain "genesis", "apocalypse", "life raft", "pluribus", "davos", or "survival"; for each AI's final narrative response, checks if the person's name (or first name) appears in the text
+- **Extraction**: Prefers to extract the `=== BEST CASE OUTCOME ===` or `SURVIVAL STORY` section from the response; falls back to first 2500 chars of the full response
+- **Email**: Sends one branded HTML email per recipient listing all AI stories that mention them, labeled by AI name and session title
+
 ### Draft Autosave
 - **Storage**: `compose_draft` localStorage key persists title, prompts, selected chatbots, evaluation settings
 - **Debounce**: 2-second debounce autosave on any change; cleared on successful run submission or reset

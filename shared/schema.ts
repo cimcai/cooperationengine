@@ -747,3 +747,25 @@ export const insertNewsletterSubscriberSchema = z.object({
 });
 
 export type InsertNewsletterSubscriber = z.infer<typeof insertNewsletterSubscriberSchema>;
+
+// Story recipients — people who should receive AI story excerpts mentioning them
+export const storyRecipients = pgTable("story_recipients", {
+  id: varchar("id").primaryKey(),
+  name: text("name").notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface StoryRecipient {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+}
+
+export const insertStoryRecipientSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Please enter a valid email address"),
+});
+
+export type InsertStoryRecipient = z.infer<typeof insertStoryRecipientSchema>;
