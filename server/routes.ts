@@ -685,6 +685,18 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   // Passcode verification
+  app.post("/api/verify-superadmin", async (req, res) => {
+    try {
+      const { passcode } = req.body;
+      const correct = process.env.SUPERADMIN_PASSCODE;
+      if (!correct) return res.json({ valid: true });
+      if (passcode === correct) return res.json({ valid: true });
+      return res.status(401).json({ valid: false, error: "Invalid superadmin passcode" });
+    } catch {
+      res.status(500).json({ error: "Failed to verify superadmin passcode" });
+    }
+  });
+
   app.post("/api/verify-passcode", async (req, res) => {
     try {
       const { passcode } = req.body;

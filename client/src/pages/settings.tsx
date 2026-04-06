@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2, Plus, BookOpen } from "lucide-react";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2, Plus, BookOpen, Lock, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -114,7 +114,120 @@ interface CostAnalytics {
   dailyTrend: DailyTrendEntry[];
 }
 
+const SUPERADMIN_KEY = "cooperation_superadmin";
+
+function SuperadminGate({ children }: { children: (passcode: string) => React.ReactNode }) {
+  const { toast } = useToast();
+  const [input, setInput] = useState("");
+  const [show, setShow] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [passcode, setPasscode] = useState<string | null>(() => {
+    return sessionStorage.getItem(SUPERADMIN_KEY);
+  });
+
+  const handleUnlock = async () => {
+    if (!input.trim()) return;
+    setChecking(true);
+    try {
+      const res = await fetch("/api/verify-superadmin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passcode: input }),
+      });
+      if (res.ok) {
+        sessionStorage.setItem(SUPERADMIN_KEY, input);
+        setPasscode(input);
+      } else {
+        toast({ title: "Wrong password", description: "That superadmin password is incorrect.", variant: "destructive" });
+        setInput("");
+      }
+    } catch {
+      toast({ title: "Error", description: "Could not verify password.", variant: "destructive" });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  if (!passcode) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center p-6">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="text-center space-y-2">
+            <div className="flex justify-center">
+              <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
+                <ShieldCheck className="h-7 w-7 text-primary" />
+              </div>
+            </div>
+            <h1 className="text-xl font-semibold">Superadmin Access</h1>
+            <p className="text-sm text-muted-foreground">Enter the superadmin password to access settings.</p>
+          </div>
+          <div className="space-y-3">
+            <div className="relative">
+              <Input
+                type={show ? "text" : "password"}
+                placeholder="Superadmin password"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleUnlock()}
+                className="pr-10"
+                data-testid="input-superadmin-passcode"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setShow(s => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <Button
+              className="w-full"
+              onClick={handleUnlock}
+              disabled={!input.trim() || checking}
+              data-testid="button-superadmin-unlock"
+            >
+              {checking ? "Verifying…" : (
+                <>
+                  <Lock className="h-4 w-4 mr-2" />
+                  Unlock Settings
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {children(passcode)}
+      <div className="fixed bottom-4 right-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => { sessionStorage.removeItem(SUPERADMIN_KEY); setPasscode(null); setInput(""); }}
+          className="text-xs gap-1.5"
+          data-testid="button-superadmin-lock"
+        >
+          <Lock className="h-3 w-3" />
+          Lock Settings
+        </Button>
+      </div>
+    </>
+  );
+}
+
 export default function SettingsPage() {
+  return (
+    <SuperadminGate>
+      {(superadminPasscode) => <SettingsContent superadminPasscode={superadminPasscode} />}
+    </SuperadminGate>
+  );
+}
+
+function SettingsContent({ superadminPasscode }: { superadminPasscode: string }) {
   const { toast } = useToast();
 
   const { data: chatbots = [] } = useQuery<Chatbot[]>({
@@ -593,8 +706,8 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        <NewsletterAdminPanel />
-        <StoryRecipientsPanel />
+        <NewsletterAdminPanel passcode={superadminPasscode} />
+        <StoryRecipientsPanel passcode={superadminPasscode} />
       </div>
     </div>
   );
