@@ -2291,10 +2291,17 @@ export async function registerRoutes(
     }
   });
 
+  function isValidAdminPasscode(passcode: string | undefined): boolean {
+    const superadmin = process.env.SUPERADMIN_PASSCODE;
+    const app = process.env.APP_PASSCODE;
+    if (!superadmin && !app) return true;
+    return passcode === superadmin || passcode === app;
+  }
+
   // Admin: list subscribers (requires passcode)
   app.get("/api/newsletter/subscribers", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
-    if (passcode !== process.env.APP_PASSCODE) {
+    if (!isValidAdminPasscode(passcode)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     try {
@@ -2308,7 +2315,7 @@ export async function registerRoutes(
   // Admin: send weekly digest email (requires passcode)
   app.post("/api/newsletter/send-weekly", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
-    if (passcode !== process.env.APP_PASSCODE) {
+    if (!isValidAdminPasscode(passcode)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     if (!resend) {
@@ -2328,7 +2335,7 @@ export async function registerRoutes(
 
   app.get("/api/story-recipients", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
-    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    if (!isValidAdminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
     try {
       const recipients = await storage.getStoryRecipients();
       res.json(recipients);
@@ -2337,7 +2344,7 @@ export async function registerRoutes(
 
   app.post("/api/story-recipients", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
-    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    if (!isValidAdminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
     const parsed = insertStoryRecipientSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
     try {
@@ -2348,7 +2355,7 @@ export async function registerRoutes(
 
   app.delete("/api/story-recipients/:id", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
-    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    if (!isValidAdminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
     try {
       await storage.deleteStoryRecipient(req.params.id);
       res.json({ ok: true });
@@ -2358,7 +2365,7 @@ export async function registerRoutes(
   // Preview the best story for a recipient (no email sent)
   app.get("/api/story-recipients/:id/preview-stories", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
-    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    if (!isValidAdminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
 
     const recipients = await storage.getStoryRecipients();
     const recipient = recipients.find(r => r.id === req.params.id);
@@ -2377,7 +2384,7 @@ export async function registerRoutes(
   // Send the single best story to a recipient
   app.post("/api/story-recipients/:id/send-stories", async (req, res) => {
     const passcode = req.headers["x-passcode"] as string | undefined;
-    if (passcode !== process.env.APP_PASSCODE) return res.status(401).json({ error: "Unauthorized" });
+    if (!isValidAdminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
     if (!resend) return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)" });
 
     const recipients = await storage.getStoryRecipients();

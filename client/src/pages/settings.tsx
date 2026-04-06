@@ -715,10 +715,8 @@ function SettingsContent({ superadminPasscode }: { superadminPasscode: string })
 
 type PreviewStory = { aiName: string; sessionTitle: string; excerpt: string; runId: string };
 
-function StoryRecipientsPanel() {
+function StoryRecipientsPanel({ passcode }: { passcode: string }) {
   const { toast } = useToast();
-  const [passcode, setPasscode] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [adding, setAdding] = useState(false);
@@ -728,13 +726,12 @@ function StoryRecipientsPanel() {
   const [dialogStory, setDialogStory] = useState<{ found: boolean; total: number; best: PreviewStory | null } | null>(null);
 
   const { data: recipients = [], isLoading, refetch } = useQuery<StoryRecipient[]>({
-    queryKey: ["/api/story-recipients", confirmed],
+    queryKey: ["/api/story-recipients"],
     queryFn: async () => {
       const res = await fetch("/api/story-recipients", { headers: { "x-passcode": passcode } });
-      if (!res.ok) { setConfirmed(false); throw new Error("Unauthorized"); }
+      if (!res.ok) throw new Error("Unauthorized");
       return res.json();
     },
-    enabled: confirmed,
     retry: false,
   });
 
@@ -817,104 +814,79 @@ function StoryRecipientsPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!confirmed ? (
-            <div className="flex gap-2">
-              <Input
-                type="password"
-                placeholder="Enter admin passcode to manage recipients"
-                value={passcode}
-                onChange={e => setPasscode(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && setConfirmed(true)}
-                className="max-w-xs"
-                data-testid="input-story-passcode"
-              />
-              <Button onClick={() => setConfirmed(true)} disabled={!passcode} data-testid="button-story-unlock">
-                Unlock
-              </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Input
+              placeholder="Person's name (e.g. Jahn Ballard)"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="max-w-[200px]"
+              data-testid="input-story-name"
+            />
+            <Input
+              placeholder="Email address"
+              value={newEmail}
+              onChange={e => setNewEmail(e.target.value)}
+              className="max-w-[220px]"
+              data-testid="input-story-email"
+            />
+            <Button
+              onClick={handleAdd}
+              disabled={adding || !newName.trim() || !newEmail.trim()}
+              data-testid="button-story-add"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              {adding ? "Adding…" : "Add"}
+            </Button>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Click "Preview" to see what the app found before sending. It searches all completed genesis, apocalypse, and life raft runs for the final AI narrative that mentions this person, then picks the richest (longest) one.
+          </p>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map(i => <div key={i} className="h-10 bg-muted animate-pulse rounded" />)}
             </div>
+          ) : recipients.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No recipients yet. Add a person above.</p>
           ) : (
-            <>
-              <div className="flex gap-2 flex-wrap">
-                <Input
-                  placeholder="Person's name (e.g. Jahn Ballard)"
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  className="max-w-[200px]"
-                  data-testid="input-story-name"
-                />
-                <Input
-                  placeholder="Email address"
-                  value={newEmail}
-                  onChange={e => setNewEmail(e.target.value)}
-                  className="max-w-[220px]"
-                  data-testid="input-story-email"
-                />
-                <Button
-                  onClick={handleAdd}
-                  disabled={adding || !newName.trim() || !newEmail.trim()}
-                  data-testid="button-story-add"
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  {adding ? "Adding…" : "Add"}
-                </Button>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                Click "Preview" to see what the app found before sending. It searches all completed genesis, apocalypse, and life raft runs for the final AI narrative that mentions this person, then picks the richest (longest) one.
-              </p>
-
-              {isLoading ? (
-                <div className="space-y-2">
-                  {[1, 2, 3].map(i => <div key={i} className="h-10 bg-muted animate-pulse rounded" />)}
+            <div className="border rounded-md divide-y">
+              {recipients.map(r => (
+                <div key={r.id} className="flex items-center justify-between px-3 py-2 gap-2" data-testid={`row-story-recipient-${r.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{r.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{r.email}</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handlePreview(r)}
+                      disabled={previewingId === r.id}
+                      data-testid={`button-preview-stories-${r.id}`}
+                    >
+                      {previewingId === r.id ? "Loading…" : "Preview"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDelete(r.id)}
+                      data-testid={`button-delete-story-recipient-${r.id}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
-              ) : recipients.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No recipients yet. Add a person above.</p>
-              ) : (
-                <div className="border rounded-md divide-y">
-                  {recipients.map(r => (
-                    <div key={r.id} className="flex items-center justify-between px-3 py-2 gap-2" data-testid={`row-story-recipient-${r.id}`}>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{r.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{r.email}</p>
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handlePreview(r)}
-                          disabled={previewingId === r.id}
-                          data-testid={`button-preview-stories-${r.id}`}
-                        >
-                          {previewingId === r.id ? "Loading…" : "Preview"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleDelete(r.id)}
-                          data-testid={`button-delete-story-recipient-${r.id}`}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => refetch()} size="sm" data-testid="button-refresh-story-recipients">
-                  Refresh
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => { setConfirmed(false); setPasscode(""); }} data-testid="button-story-lock">
-                  Lock
-                </Button>
-              </div>
-            </>
+              ))}
+            </div>
           )}
+
+          <Button variant="outline" onClick={() => refetch()} size="sm" data-testid="button-refresh-story-recipients">
+            Refresh
+          </Button>
         </CardContent>
       </Card>
 
-      {/* Story preview dialog */}
       <Dialog open={!!dialogRecipient} onOpenChange={open => { if (!open) { setDialogRecipient(null); setDialogStory(null); } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
@@ -923,7 +895,7 @@ function StoryRecipientsPanel() {
               {dialogStory ? (
                 dialogStory.found
                   ? `Found ${dialogStory.total} AI narrative${dialogStory.total !== 1 ? "s" : ""} mentioning this person. Showing the richest one — by ${dialogStory.best?.aiName} from "${dialogStory.best?.sessionTitle}".`
-                  : `No AI narratives mentioning "${dialogRecipient?.name}" were found in any genesis or apocalypse run yet.`
+                  : `No AI narratives mentioning "${dialogRecipient?.name}" were found yet.`
               ) : "Searching…"}
             </DialogDescription>
           </DialogHeader>
@@ -951,11 +923,7 @@ function StoryRecipientsPanel() {
               Close
             </Button>
             {dialogStory?.found && (
-              <Button
-                onClick={handleSend}
-                disabled={!!sendingId}
-                data-testid="button-send-story-confirm"
-              >
+              <Button onClick={handleSend} disabled={!!sendingId} data-testid="button-send-story-confirm">
                 {sendingId ? "Sending…" : (
                   <>
                     <Send className="h-4 w-4 mr-2" />
@@ -971,22 +939,17 @@ function StoryRecipientsPanel() {
   );
 }
 
-function NewsletterAdminPanel() {
+function NewsletterAdminPanel({ passcode }: { passcode: string }) {
   const { toast } = useToast();
-  const [passcode, setPasscode] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
-  const { data: subscribers = [], isLoading, isError, refetch } = useQuery<NewsletterSubscriber[]>({
-    queryKey: ["/api/newsletter/subscribers", confirmed],
+  const { data: subscribers = [], isLoading, refetch } = useQuery<NewsletterSubscriber[]>({
+    queryKey: ["/api/newsletter/subscribers"],
     queryFn: async () => {
-      const res = await fetch("/api/newsletter/subscribers", {
-        headers: { "x-passcode": passcode },
-      });
-      if (!res.ok) { setConfirmed(false); throw new Error("Unauthorized"); }
+      const res = await fetch("/api/newsletter/subscribers", { headers: { "x-passcode": passcode } });
+      if (!res.ok) throw new Error("Unauthorized");
       return res.json();
     },
-    enabled: confirmed,
     retry: false,
   });
 
@@ -1021,91 +984,62 @@ function NewsletterAdminPanel() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!confirmed ? (
-          <div className="flex gap-2">
-            <Input
-              type="password"
-              placeholder="Enter admin passcode to view subscribers"
-              value={passcode}
-              onChange={e => setPasscode(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && setConfirmed(true)}
-              className="max-w-xs"
-              data-testid="input-newsletter-passcode"
-            />
-            <Button onClick={() => setConfirmed(true)} disabled={!passcode} data-testid="button-newsletter-unlock">
-              Unlock
-            </Button>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">
+              <span className="font-semibold" data-testid="text-active-subscribers">{activeCount}</span>
+              <span className="text-muted-foreground"> active</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Trash2 className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">
+              <span className="font-semibold">{subscribers.length - activeCount}</span>
+              <span className="text-muted-foreground"> unsubscribed</span>
+            </span>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => <div key={i} className="h-8 bg-muted animate-pulse rounded" />)}
+          </div>
+        ) : subscribers.length > 0 ? (
+          <div className="border rounded-md divide-y max-h-64 overflow-y-auto">
+            {subscribers.map(sub => (
+              <div key={sub.id} className="flex items-center justify-between px-3 py-2" data-testid={`row-subscriber-${sub.id}`}>
+                <div>
+                  <p className="text-sm font-medium">{sub.email}</p>
+                  {sub.name && <p className="text-xs text-muted-foreground">{sub.name}</p>}
+                </div>
+                <Badge variant={sub.status === "active" ? "default" : "secondary"} className="text-xs shrink-0">
+                  {sub.status}
+                </Badge>
+              </div>
+            ))}
           </div>
         ) : (
-          <>
-            {/* Subscriber stats */}
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">
-                  <span className="font-semibold" data-testid="text-active-subscribers">{activeCount}</span>
-                  <span className="text-muted-foreground"> active</span>
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Trash2 className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm">
-                  <span className="font-semibold">{subscribers.length - activeCount}</span>
-                  <span className="text-muted-foreground"> unsubscribed</span>
-                </span>
-              </div>
-            </div>
-
-            {/* Subscriber list */}
-            {isLoading ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="h-8 bg-muted animate-pulse rounded" />
-                ))}
-              </div>
-            ) : subscribers.length > 0 ? (
-              <div className="border rounded-md divide-y max-h-64 overflow-y-auto">
-                {subscribers.map(sub => (
-                  <div key={sub.id} className="flex items-center justify-between px-3 py-2" data-testid={`row-subscriber-${sub.id}`}>
-                    <div>
-                      <p className="text-sm font-medium">{sub.email}</p>
-                      {sub.name && <p className="text-xs text-muted-foreground">{sub.name}</p>}
-                    </div>
-                    <Badge variant={sub.status === "active" ? "default" : "secondary"} className="text-xs shrink-0">
-                      {sub.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No subscribers yet. The signup form on the public page will start collecting emails.</p>
-            )}
-
-            {/* Actions */}
-            <div className="flex gap-2 flex-wrap">
-              <Button
-                onClick={handleSendWeekly}
-                disabled={isSending || activeCount === 0}
-                data-testid="button-send-weekly"
-              >
-                {isSending ? (
-                  <>Sending…</>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4 mr-2" />
-                    Send Weekly Digest ({activeCount})
-                  </>
-                )}
-              </Button>
-              <Button variant="outline" onClick={() => refetch()} data-testid="button-refresh-subscribers">
-                Refresh
-              </Button>
-              <Button variant="ghost" onClick={() => { setConfirmed(false); setPasscode(""); }} data-testid="button-newsletter-lock">
-                Lock
-              </Button>
-            </div>
-          </>
+          <p className="text-sm text-muted-foreground">No subscribers yet. The signup form on the public page will start collecting emails.</p>
         )}
+
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            onClick={handleSendWeekly}
+            disabled={isSending || activeCount === 0}
+            data-testid="button-send-weekly"
+          >
+            {isSending ? <>Sending…</> : (
+              <>
+                <Send className="h-4 w-4 mr-2" />
+                Send Weekly Digest ({activeCount})
+              </>
+            )}
+          </Button>
+          <Button variant="outline" onClick={() => refetch()} data-testid="button-refresh-subscribers">
+            Refresh
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
