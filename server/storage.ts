@@ -64,8 +64,8 @@ export const availableChatbots: Chatbot[] = [
   {
     id: "openrouter-grok4",
     provider: "openrouter",
-    displayName: "Grok 4",
-    model: "x-ai/grok-4",
+    displayName: "Grok 4.3",
+    model: "x-ai/grok-4.3",
     description: "xAI's flagship reasoning model via OpenRouter",
     enabled: true,
   },

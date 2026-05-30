@@ -1,0 +1,1 @@
+- [OpenRouter model slug deprecation](openrouter-model-deprecation.md) — retired slugs 404 with the replacement name; update model: in storage.ts and restart
