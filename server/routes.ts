@@ -2401,7 +2401,7 @@ export async function registerRoutes(
 
       const html = buildStoryEmail(recipient.name, [best]);
       await resend.emails.send({
-        from: "Cooperation Engine <onboarding@resend.dev>",
+        from: "Cooperation Engine <cooperation@cimc.io>",
         to: recipient.email,
         subject: `Your survival story — what ${best.aiName} imagined for ${recipient.name}`,
         html,
