@@ -1,2 +1,3 @@
 - [OpenRouter model slug deprecation](openrouter-model-deprecation.md) — retired slugs 404 with the replacement name; update model: in storage.ts and restart
 - [PDF markdown rendering](pdf-markdown-rendering.md) — render markdown stories to PDF via pdfkit (inline-bold continued gotcha) + email as Resend base64 attachment.
+- [Completing truncated AI responses](continuing-truncated-ai-responses.md) — run responses cut off by max_tokens; finish via assistant-prefill continuation; stream synchronously (background jobs die at tool boundary).
