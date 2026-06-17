@@ -11,11 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2, Plus, BookOpen, Lock, ShieldCheck, Eye, EyeOff } from "lucide-react";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2, Plus, BookOpen, Lock, ShieldCheck, Eye, EyeOff, LogIn, Globe } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Chatbot, BenchmarkWeight, NewsletterSubscriber, StoryRecipient } from "@shared/schema";
+import type { Chatbot, BenchmarkWeight, NewsletterSubscriber, StoryRecipient, LoginEvent } from "@shared/schema";
 import { useState, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
@@ -706,6 +706,7 @@ function SettingsContent({ superadminPasscode }: { superadminPasscode: string })
           </CardContent>
         </Card>
 
+        <LoginActivityPanel passcode={superadminPasscode} />
         <NewsletterAdminPanel passcode={superadminPasscode} />
         <StoryRecipientsPanel passcode={superadminPasscode} />
       </div>
@@ -1040,6 +1041,87 @@ function NewsletterAdminPanel({ passcode }: { passcode: string }) {
             Refresh
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoginActivityPanel({ passcode }: { passcode: string }) {
+  const { data: events = [], isLoading, refetch } = useQuery<LoginEvent[]>({
+    queryKey: ["/api/login-events"],
+    queryFn: async () => {
+      const res = await fetch("/api/login-events", { headers: { "x-passcode": passcode } });
+      if (!res.ok) throw new Error("Unauthorized");
+      return res.json();
+    },
+    retry: false,
+  });
+
+  const now = Date.now();
+  const last24h = events.filter(e => now - new Date(e.createdAt).getTime() < 24 * 60 * 60 * 1000).length;
+
+  const fmt = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <LogIn className="h-5 w-5" />
+          Login Activity
+        </CardTitle>
+        <CardDescription>
+          Every successful passcode entry, with IP address and time
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">
+              <span className="font-semibold" data-testid="text-logins-total">{events.length}</span>
+              <span className="text-muted-foreground"> total {events.length === 200 ? "(latest 200)" : ""}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">
+              <span className="font-semibold" data-testid="text-logins-24h">{last24h}</span>
+              <span className="text-muted-foreground"> in last 24h</span>
+            </span>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => <div key={i} className="h-8 bg-muted animate-pulse rounded" />)}
+          </div>
+        ) : events.length > 0 ? (
+          <div className="border rounded-md divide-y max-h-72 overflow-y-auto">
+            {events.map(ev => (
+              <div key={ev.id} className="flex items-center justify-between px-3 py-2 gap-3" data-testid={`row-login-${ev.id}`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-mono truncate" data-testid={`text-login-ip-${ev.id}`}>{ev.ip ?? "unknown"}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {ev.kind === "superadmin" && (
+                    <Badge variant="secondary" className="text-xs">superadmin</Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">{fmt(ev.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No logins recorded yet.</p>
+        )}
+
+        <Button variant="outline" onClick={() => refetch()} size="sm" data-testid="button-refresh-logins">
+          Refresh
+        </Button>
       </CardContent>
     </Card>
   );

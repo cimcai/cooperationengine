@@ -685,12 +685,33 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   // Passcode verification
+  function getClientIp(req: any): string | undefined {
+    // With Express "trust proxy" enabled, req.ip resolves the real client IP
+    // from the proxy's X-Forwarded-For chain rather than a client-spoofed value.
+    return req.ip || req.socket?.remoteAddress || undefined;
+  }
+
+  async function recordLogin(req: any, kind: "app" | "superadmin") {
+    try {
+      await storage.createLoginEvent({
+        kind,
+        ip: getClientIp(req),
+        userAgent: (req.headers["user-agent"] as string | undefined)?.slice(0, 500),
+      });
+    } catch (err) {
+      console.error("Failed to record login event:", err);
+    }
+  }
+
   app.post("/api/verify-superadmin", async (req, res) => {
     try {
       const { passcode } = req.body;
       const correct = process.env.SUPERADMIN_PASSCODE;
       if (!correct) return res.json({ valid: true });
-      if (passcode === correct) return res.json({ valid: true });
+      if (passcode === correct) {
+        await recordLogin(req, "superadmin");
+        return res.json({ valid: true });
+      }
       return res.status(401).json({ valid: false, error: "Invalid superadmin passcode" });
     } catch {
       res.status(500).json({ error: "Failed to verify superadmin passcode" });
@@ -713,6 +734,7 @@ export async function registerRoutes(
       
       if (passcode === correctPasscode) {
         console.log("Passcode verification - match!");
+        await recordLogin(req, "app");
         res.json({ valid: true });
       } else {
         console.log("Passcode verification - mismatch");
@@ -2297,6 +2319,29 @@ export async function registerRoutes(
     if (!superadmin && !app) return true;
     return passcode === superadmin || passcode === app;
   }
+
+  // Login telemetry is more sensitive than other admin data, so require the
+  // superadmin passcode specifically (falls back to app passcode only when no
+  // superadmin passcode is configured).
+  function isValidSuperadminPasscode(passcode: string | undefined): boolean {
+    const superadmin = process.env.SUPERADMIN_PASSCODE;
+    if (!superadmin) return isValidAdminPasscode(passcode);
+    return passcode === superadmin;
+  }
+
+  // Admin: list login events (requires superadmin passcode)
+  app.get("/api/login-events", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      const events = await storage.getLoginEvents(200);
+      res.json(events);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch login events" });
+    }
+  });
 
   // Admin: list subscribers (requires passcode)
   app.get("/api/newsletter/subscribers", async (req, res) => {

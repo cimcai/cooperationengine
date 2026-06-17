@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, type StoryRecipient, type InsertStoryRecipient, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers, storyRecipients } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, type StoryRecipient, type InsertStoryRecipient, type LoginEvent, type InsertLoginEvent, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers, storyRecipients, loginEvents } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql, ilike, count, inArray, gte, lt } from "drizzle-orm";
@@ -167,6 +167,9 @@ export interface IStorage {
   getStoryRecipients(): Promise<StoryRecipient[]>;
   createStoryRecipient(data: InsertStoryRecipient): Promise<StoryRecipient>;
   deleteStoryRecipient(id: string): Promise<void>;
+  // Login event methods
+  createLoginEvent(data: InsertLoginEvent): Promise<LoginEvent>;
+  getLoginEvents(limit?: number): Promise<LoginEvent[]>;
 }
 
 function dbSessionToSession(row: typeof sessions.$inferSelect): Session {
@@ -1333,6 +1336,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteStoryRecipient(id: string): Promise<void> {
     await db.delete(storyRecipients).where(eq(storyRecipients.id, id));
+  }
+
+  async createLoginEvent(data: InsertLoginEvent): Promise<LoginEvent> {
+    const id = randomUUID();
+    const result = await db.insert(loginEvents).values({
+      id,
+      kind: data.kind,
+      ip: data.ip,
+      userAgent: data.userAgent,
+    }).returning();
+    const r = result[0];
+    return {
+      id: r.id,
+      kind: r.kind as "app" | "superadmin",
+      ip: r.ip ?? undefined,
+      userAgent: r.userAgent ?? undefined,
+      createdAt: r.createdAt.toISOString(),
+    };
+  }
+
+  async getLoginEvents(limit = 200): Promise<LoginEvent[]> {
+    const result = await db.select().from(loginEvents).orderBy(desc(loginEvents.createdAt)).limit(limit);
+    return result.map(r => ({
+      id: r.id,
+      kind: r.kind as "app" | "superadmin",
+      ip: r.ip ?? undefined,
+      userAgent: r.userAgent ?? undefined,
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
 }
 

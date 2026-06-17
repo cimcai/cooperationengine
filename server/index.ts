@@ -6,6 +6,7 @@ import { createServer } from "http";
 process.on("SIGHUP", () => {});
 
 const app = express();
+app.set("trust proxy", true);
 const httpServer = createServer(app);
 
 declare module "http" {

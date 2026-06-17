@@ -769,3 +769,26 @@ export const insertStoryRecipientSchema = z.object({
 });
 
 export type InsertStoryRecipient = z.infer<typeof insertStoryRecipientSchema>;
+
+// Login events — one row per successful passcode entry
+export const loginEvents = pgTable("login_events", {
+  id: varchar("id").primaryKey(),
+  kind: varchar("kind", { length: 20 }).notNull().default("app"),
+  ip: varchar("ip", { length: 64 }),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface LoginEvent {
+  id: string;
+  kind: "app" | "superadmin";
+  ip?: string;
+  userAgent?: string;
+  createdAt: string;
+}
+
+export interface InsertLoginEvent {
+  kind: "app" | "superadmin";
+  ip?: string;
+  userAgent?: string;
+}
