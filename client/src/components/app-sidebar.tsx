@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords, Wrench, Trophy, LogOut, Home, FileText, Shield } from "lucide-react";
+import { MessageSquarePlus, History, Settings, Zap, BarChart3, Swords, Wrench, Trophy, LogOut, Home, FileText, Shield, Lightbulb } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -127,6 +127,22 @@ export function AppSidebar() {
           >
             <Home className="h-4 w-4" />
             <span>Public Page</span>
+          </Button>
+        </a>
+        <a
+          href="https://github.com/cimcai/cooperationengine/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block"
+        >
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground"
+            data-testid="link-request-feature"
+          >
+            <Lightbulb className="h-4 w-4" />
+            <span>Request a feature</span>
           </Button>
         </a>
       </SidebarFooter>
