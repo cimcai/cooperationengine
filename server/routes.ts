@@ -2445,14 +2445,22 @@ export async function registerRoutes(
       }
 
       const html = buildStoryEmail(recipient.name, [best]);
-      await resend.emails.send({
+      const { data, error } = await resend.emails.send({
         from: "Cooperation Engine <joel@cimc.io>",
         to: recipient.email,
         subject: `Your survival story — what ${best.aiName} imagined for ${recipient.name}`,
         html,
       });
 
-      res.json({ sent: true, message: `Sent the best story (by ${best.aiName}) to ${recipient.email}.` });
+      if (error) {
+        console.error("Resend rejected story email:", error);
+        return res.status(502).json({
+          sent: false,
+          error: `Resend rejected the email: ${error.message || JSON.stringify(error)}`,
+        });
+      }
+
+      res.json({ sent: true, id: data?.id, message: `Sent the best story (by ${best.aiName}) to ${recipient.email}.` });
     } catch (err) {
       console.error("Send stories error:", err);
       res.status(500).json({ error: "Failed to send story email" });
