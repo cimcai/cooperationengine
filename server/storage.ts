@@ -1,4 +1,6 @@
 import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, type StoryRecipient, type InsertStoryRecipient, type LoginEvent, type InsertLoginEvent, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers, storyRecipients, loginEvents } from "@shared/schema";
+import { runArtifacts } from "@shared/schema";
+import type { RunArtifact } from "./modelClient";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql, ilike, count, inArray, gte, lt } from "drizzle-orm";
@@ -195,6 +197,24 @@ function dbRunToRun(row: typeof runs.$inferSelect): Run {
     startedAt: row.startedAt.toISOString(),
     completedAt: row.completedAt?.toISOString(),
     responses: row.responses || [],
+  };
+}
+
+function dbArtifactToArtifact(row: typeof runArtifacts.$inferSelect): RunArtifact {
+  return {
+    requestHash: row.requestHash,
+    provider: row.provider,
+    model: row.model,
+    request: row.request,
+    content: row.content,
+    usage: row.usage ?? undefined,
+    latencyMs: row.latencyMs,
+    runId: row.runId ?? undefined,
+    chatbotId: row.chatbotId ?? undefined,
+    stepOrder: row.stepOrder ?? undefined,
+    modelVersion: row.modelVersion ?? undefined,
+    finishReason: row.finishReason ?? undefined,
+    responseRaw: row.responseRaw ?? undefined,
   };
 }
 
@@ -425,6 +445,41 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRun(id: string): Promise<void> {
     await db.delete(runs).where(eq(runs.id, id));
+  }
+
+  // --- Run artifacts (record/replay, issue #12) ---
+
+  async createRunArtifact(artifact: RunArtifact): Promise<void> {
+    await db.insert(runArtifacts).values({
+      id: randomUUID(),
+      requestHash: artifact.requestHash,
+      runId: artifact.runId ?? null,
+      chatbotId: artifact.chatbotId ?? null,
+      stepOrder: artifact.stepOrder ?? null,
+      provider: artifact.provider,
+      model: artifact.model,
+      modelVersion: artifact.modelVersion ?? null,
+      request: artifact.request,
+      content: artifact.content,
+      finishReason: artifact.finishReason ?? null,
+      responseRaw: artifact.responseRaw ?? null,
+      usage: artifact.usage ?? null,
+      latencyMs: artifact.latencyMs,
+    });
+  }
+
+  async getRunArtifactByHash(requestHash: string): Promise<RunArtifact | undefined> {
+    const result = await db.select().from(runArtifacts)
+      .where(eq(runArtifacts.requestHash, requestHash))
+      .orderBy(desc(runArtifacts.createdAt))
+      .limit(1);
+    return result[0] ? dbArtifactToArtifact(result[0]) : undefined;
+  }
+
+  async getRunArtifactsByRun(runId: string): Promise<RunArtifact[]> {
+    const result = await db.select().from(runArtifacts)
+      .where(eq(runArtifacts.runId, runId));
+    return result.map(dbArtifactToArtifact);
   }
 
   async getChatbots(): Promise<Chatbot[]> {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, varchar, text, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, timestamp, jsonb, integer, index } from "drizzle-orm/pg-core";
 
 // Database tables
 export const sessions = pgTable("sessions", {
@@ -44,6 +44,45 @@ export const runs = pgTable("runs", {
     totalTokens?: number;
   }[]>(),
 });
+
+// Run artifacts - content-addressable record of each model call, for
+// deterministic record/replay (issue #12, Phase 1). `requestHash` keys the
+// replay cache; `runId`/`stepOrder` (nullable) link an artifact to a run so
+// replayRun() can reconstruct the call sequence. Artifacts captured without a
+// run context (runId null) still serve as a global replay cache.
+export const runArtifacts = pgTable("run_artifacts", {
+  id: varchar("id").primaryKey(),
+  requestHash: varchar("request_hash").notNull(),
+  runId: varchar("run_id"),
+  chatbotId: varchar("chatbot_id"),
+  stepOrder: integer("step_order"),
+  provider: varchar("provider").notNull(),
+  model: varchar("model").notNull(),
+  // Snapshot the API actually served, when the provider returns it. Lets a
+  // later run detect server-side model drift ("trust over time").
+  modelVersion: varchar("model_version"),
+  request: jsonb("request").notNull().$type<{
+    provider: string;
+    model: string;
+    messages: { role: string; content: string }[];
+    params?: Record<string, unknown>;
+  }>(),
+  content: text("content").notNull(),
+  finishReason: varchar("finish_reason"),
+  // Unparsed provider payload, so parsing can be re-run from raw if the parser
+  // changes — not just from the extracted `content`.
+  responseRaw: jsonb("response_raw"),
+  usage: jsonb("usage").$type<{
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  }>(),
+  latencyMs: integer("latency_ms").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  requestHashIdx: index("run_artifacts_request_hash_idx").on(table.requestHash),
+  runIdIdx: index("run_artifacts_run_id_idx").on(table.runId),
+}));
 
 // Arena matches table - for AI vs AI games
 export const arenaMatches = pgTable("arena_matches", {
@@ -230,10 +269,14 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
-// AI call result with content and optional token usage
+// AI call result with content and optional token usage. The optional fields
+// carry provenance for run artifacts (issue #12); orchestration ignores them.
 export interface AICallResult {
   content: string;
   usage?: TokenUsage;
+  modelVersion?: string;
+  finishReason?: string;
+  raw?: unknown;
 }
 
 // A run targeting multiple chatbots
