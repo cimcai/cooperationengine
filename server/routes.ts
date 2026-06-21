@@ -2515,17 +2515,20 @@ export async function registerRoutes(
 
     try {
       const stories = await findStoriesForRecipient(recipient.name);
-      const best = stories[0];
 
-      if (!best) {
+      if (stories.length === 0) {
         return res.json({ sent: false, message: `No AI stories mentioning "${recipient.name}" were found in any genesis or apocalypse run.` });
       }
 
-      const html = buildStoryEmail(recipient.name, [best]);
+      const selected = stories.slice(0, 15);
+      const html = buildStoryEmail(recipient.name, selected);
+      const subject = selected.length === 1
+        ? `Your survival story — what ${selected[0].aiName} imagined for ${recipient.name}`
+        : `Your survival stories — ${selected.length} AI scenarios featuring ${recipient.name}`;
       const { data, error } = await resend.emails.send({
         from: "Cooperation Engine <joel@cimc.io>",
         to: recipient.email,
-        subject: `Your survival story — what ${best.aiName} imagined for ${recipient.name}`,
+        subject,
         html,
       });
 
@@ -2537,7 +2540,7 @@ export async function registerRoutes(
         });
       }
 
-      res.json({ sent: true, id: data?.id, message: `Sent the best story (by ${best.aiName}) to ${recipient.email}.` });
+      res.json({ sent: true, id: data?.id, count: selected.length, message: `Sent ${selected.length} stor${selected.length === 1 ? "y" : "ies"} to ${recipient.email}.` });
     } catch (err) {
       console.error("Send stories error:", err);
       res.status(500).json({ error: "Failed to send story email" });
@@ -2695,14 +2698,14 @@ async function findStoriesForRecipient(recipientName: string): Promise<{ aiName:
       if (!contentLower.includes(nameLower) && !contentLower.includes(firstNameLower)) continue;
 
       let excerpt = resp.content;
-      const bestCaseMatch = resp.content.match(/=== BEST CASE OUTCOME[\s\S]{0,3000}/i);
-      const survivalMatch = resp.content.match(/SURVIVAL STORY[\s\S]{0,3000}/i);
-      const bestOutcomeMatch = resp.content.match(/BEST.{0,10}OUTCOME[\s\S]{0,3000}/i);
+      const bestCaseMatch = resp.content.match(/=== BEST CASE OUTCOME[\s\S]{0,5000}/i);
+      const survivalMatch = resp.content.match(/SURVIVAL STORY[\s\S]{0,5000}/i);
+      const bestOutcomeMatch = resp.content.match(/BEST.{0,10}OUTCOME[\s\S]{0,5000}/i);
 
-      if (bestCaseMatch) excerpt = bestCaseMatch[0].slice(0, 2500);
-      else if (survivalMatch) excerpt = survivalMatch[0].slice(0, 2500);
-      else if (bestOutcomeMatch) excerpt = bestOutcomeMatch[0].slice(0, 2500);
-      else excerpt = resp.content.slice(0, 2500);
+      if (bestCaseMatch) excerpt = bestCaseMatch[0].slice(0, 4500);
+      else if (survivalMatch) excerpt = survivalMatch[0].slice(0, 4500);
+      else if (bestOutcomeMatch) excerpt = bestOutcomeMatch[0].slice(0, 4500);
+      else excerpt = resp.content.slice(0, 4500);
 
       const chatbot = availableChatbots.find(c => c.id === chatbotId);
       results.push({ aiName: chatbot?.displayName ?? chatbotId, sessionTitle: session.title, excerpt, runId: run.id });
@@ -2713,11 +2716,66 @@ async function findStoriesForRecipient(recipientName: string): Promise<{ aiName:
   return results.sort((a, b) => b.excerpt.length - a.excerpt.length);
 }
 
+// Minimal markdown -> email-safe HTML for the subset the AI stories actually use:
+// #/##/### headings, "=== HEADER ===" rules, **bold**, *italic*, - / * bullets,
+// --- horizontal rules, and paragraphs. Everything is HTML-escaped first.
+function markdownToEmailHtml(md: string): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (s: string) =>
+    esc(s)
+      .replace(/\*\*([^*]+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*(?!\s)([^*]+?)\*(?!\*)/g, "$1<em>$2</em>");
+
+  const lines = md.split(/\r?\n/);
+  let html = "";
+  let inList = false;
+  const closeList = () => { if (inList) { html += "</ul>"; inList = false; } };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { closeList(); continue; }
+
+    // === SECTION HEADER ===
+    if (/^={2,}.*=*$/.test(line) && /[A-Za-z]/.test(line)) {
+      closeList();
+      const txt = line.replace(/=/g, "").trim();
+      html += `<div style="font-weight:700;color:#4f46e5;margin:1rem 0 0.4rem;font-size:0.8rem;letter-spacing:0.04em;text-transform:uppercase">${inline(txt)}</div>`;
+      continue;
+    }
+
+    // --- horizontal rule
+    if (/^[-*_]{3,}$/.test(line)) { closeList(); html += `<hr style="border:none;border-top:1px solid #e5e7eb;margin:1rem 0"/>`; continue; }
+
+    // # / ## / ### headings
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      closeList();
+      const size = h[1].length <= 2 ? "1.05rem" : "0.95rem";
+      html += `<div style="font-weight:700;font-size:${size};color:#111;margin:0.9rem 0 0.3rem">${inline(h[2])}</div>`;
+      continue;
+    }
+
+    // - / * bullets
+    const b = line.match(/^[-*]\s+(.*)$/);
+    if (b) {
+      if (!inList) { html += `<ul style="margin:0.3rem 0;padding-left:1.25rem">`; inList = true; }
+      html += `<li style="margin:0.2rem 0">${inline(b[1])}</li>`;
+      continue;
+    }
+
+    closeList();
+    html += `<p style="margin:0.5rem 0">${inline(line)}</p>`;
+  }
+
+  closeList();
+  return html;
+}
+
 function buildStoryEmail(name: string, excerpts: { aiName: string; sessionTitle: string; excerpt: string }[]): string {
   const blocks = excerpts.map(e => `
-    <div style="border-left:3px solid #6366f1;padding:0.75rem 1rem;margin:1rem 0;background:#f9fafb;border-radius:0 8px 8px 0">
-      <div style="font-size:0.75rem;color:#6b7280;margin-bottom:0.5rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">${e.aiName} — ${e.sessionTitle}</div>
-      <pre style="white-space:pre-wrap;font-family:system-ui,sans-serif;font-size:0.9rem;color:#1a1a1a;margin:0">${e.excerpt.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>
+    <div style="border-left:3px solid #6366f1;padding:0.75rem 1.25rem;margin:1.5rem 0;background:#f9fafb;border-radius:0 8px 8px 0">
+      <div style="font-size:0.75rem;color:#6b7280;margin-bottom:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">${e.aiName} — ${e.sessionTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+      <div style="font-size:0.9rem;line-height:1.55;color:#1a1a1a">${markdownToEmailHtml(e.excerpt)}</div>
     </div>
   `).join("");
 
