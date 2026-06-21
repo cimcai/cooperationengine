@@ -2522,6 +2522,18 @@ export async function registerRoutes(
 
       const best = await pickBestStory(recipient.name, stories);
       const selected = [best];
+
+      // Dry run: return the chosen story for review without sending an email
+      if ((req.body as { dryRun?: boolean } | undefined)?.dryRun === true) {
+        return res.json({
+          dryRun: true,
+          aiName: best.aiName,
+          sessionTitle: best.sessionTitle,
+          length: best.excerpt.length,
+          preview: best.excerpt.slice(0, 1500),
+        });
+      }
+
       const html = buildStoryEmail(recipient.name, selected);
       const subject = `Your survival story — what ${best.aiName} imagined for ${recipient.name}`;
 
@@ -2725,14 +2737,30 @@ async function pickBestStory(
   candidates: { aiName: string; sessionTitle: string; excerpt: string; runId: string }[],
 ): Promise<{ aiName: string; sessionTitle: string; excerpt: string; runId: string }> {
   if (candidates.length <= 1) return candidates[0];
+
+  // Drop terse "roster"/template-style outputs (e.g. HERO_1_NAME / _ACCOMPLISHMENT
+  // field fills) so only real prose narratives are considered. Fall back to the
+  // full set if filtering would leave nothing.
+  const isNarrative = (text: string) => {
+    const templateHits = (text.match(/(HERO_?\d|_NAME:|_ACCOMPLISHMENT|_TITLE:|_DEED|VILLAIN_|FORGOTTEN_)/gi) || []).length;
+    return templateHits < 3;
+  };
+  const narratives = candidates.filter(c => isNarrative(c.excerpt));
+  const base = narratives.length > 0 ? narratives : candidates;
+
   // Bound cost: rank only the 12 richest (already sorted longest-first).
-  const pool = candidates.slice(0, 12);
+  const pool = base.slice(0, 12);
   const list = pool
-    .map((c, i) => `STORY ${i} (by ${c.aiName}):\n${c.excerpt.slice(0, 1800)}`)
+    .map((c, i) => `STORY ${i} (by ${c.aiName}):\n${c.excerpt.slice(0, 2800)}`)
     .join("\n\n---\n\n");
 
-  const prompt = `You are choosing the single best survival story to send to ${recipientName}.
-Pick the ONE story where ${recipientName} achieves the BEST OUTCOME and creates the GREATEST positive impact — where they are most central to the group's survival and rebuilding, and their contribution is portrayed most positively.
+  const prompt = `You are choosing the single best survival story to email to ${recipientName}.
+
+Requirements for the story you pick:
+1. It must read as an actual NARRATIVE — flowing prose that tells a real story with events, characters, and a journey.
+2. AVOID terse outputs: bullet-only lists, "hero rosters", scorecards, or template fills with field labels like "HERO_1_NAME" / "HERO_1_ACCOMPLISHMENT". These are NOT stories.
+3. Among the real narratives, prefer the one where ${recipientName} achieves the BEST OUTCOME and the GREATEST positive impact — most central to the group's survival and rebuilding, portrayed most positively.
+
 Respond with ONLY the number of the best story (for example: 3). No other text.
 
 ${list}`;
@@ -2786,6 +2814,14 @@ function markdownToEmailHtml(md: string): string {
       closeList();
       const size = h[1].length <= 2 ? "1.05rem" : "0.95rem";
       html += `<div style="font-weight:700;font-size:${size};color:#111;margin:0.9rem 0 0.3rem">${inline(h[2])}</div>`;
+      continue;
+    }
+
+    // > blockquote (strip marker, render as indented quote)
+    const bq = line.match(/^>\s?(.*)$/);
+    if (bq) {
+      closeList();
+      html += `<div style="margin:0.4rem 0;padding:0.1rem 0 0.1rem 0.9rem;border-left:3px solid #c7d2fe;color:#374151">${inline(bq[1])}</div>`;
       continue;
     }
 
