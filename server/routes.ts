@@ -2704,15 +2704,9 @@ async function findStoriesForRecipient(recipientName: string): Promise<{ aiName:
       const contentLower = resp.content.toLowerCase();
       if (!contentLower.includes(nameLower) && !contentLower.includes(firstNameLower)) continue;
 
-      let excerpt = resp.content;
-      const bestCaseMatch = resp.content.match(/=== BEST CASE OUTCOME[\s\S]{0,5000}/i);
-      const survivalMatch = resp.content.match(/SURVIVAL STORY[\s\S]{0,5000}/i);
-      const bestOutcomeMatch = resp.content.match(/BEST.{0,10}OUTCOME[\s\S]{0,5000}/i);
-
-      if (bestCaseMatch) excerpt = bestCaseMatch[0].slice(0, 4500);
-      else if (survivalMatch) excerpt = survivalMatch[0].slice(0, 4500);
-      else if (bestOutcomeMatch) excerpt = bestOutcomeMatch[0].slice(0, 4500);
-      else excerpt = resp.content.slice(0, 4500);
+      // Include the full story so the email tells the whole narrative, not just
+      // a single extracted section. Generous cap only to avoid runaway sizes.
+      const excerpt = resp.content.slice(0, 30000);
 
       const chatbot = availableChatbots.find(c => c.id === chatbotId);
       results.push({ aiName: chatbot?.displayName ?? chatbotId, sessionTitle: session.title, excerpt, runId: run.id });
