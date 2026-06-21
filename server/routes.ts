@@ -2522,6 +2522,7 @@ export async function registerRoutes(
 
       const best = await pickBestStory(recipient.name, stories);
       const selected = [best];
+      const legacy = extractLegacyHighlights(recipient.name, stories);
 
       // Dry run: return the chosen story for review without sending an email
       if ((req.body as { dryRun?: boolean } | undefined)?.dryRun === true) {
@@ -2531,10 +2532,12 @@ export async function registerRoutes(
           sessionTitle: best.sessionTitle,
           length: best.excerpt.length,
           preview: best.excerpt.slice(0, 1500),
+          legacyCount: legacy.length,
+          legacy: legacy.map(l => `${l.who}${l.title ? ` — ${l.title}` : ""}: ${l.accomplishment} (${l.aiName})`),
         });
       }
 
-      const html = buildStoryEmail(recipient.name, selected);
+      const html = buildStoryEmail(recipient.name, selected, legacy);
       const subject = `Your survival story — what ${best.aiName} imagined for ${recipient.name}`;
 
       // Optional CC list from request body (string or string[])
@@ -2705,14 +2708,13 @@ async function findStoriesForRecipient(recipientName: string): Promise<{ aiName:
     const titleLower = session.title.toLowerCase();
     if (!storyKeywords.some(kw => titleLower.includes(kw))) continue;
 
-    const finalPerBot = new Map<string, typeof run.responses[0]>();
+    // Consider EVERY step's response (not just the final one). These sessions
+    // often end with a terse "ULTIMATE HEROES" roster step that comes AFTER the
+    // rich narrative step — taking only the last step would miss the actual
+    // story. We gather all responses mentioning the recipient and let the prose
+    // scorer downstream pick the richest narrative.
     for (const resp of run.responses) {
       if (resp.error || resp.isEvaluation) continue;
-      const existing = finalPerBot.get(resp.chatbotId);
-      if (!existing || resp.stepOrder > existing.stepOrder) finalPerBot.set(resp.chatbotId, resp);
-    }
-
-    for (const [chatbotId, resp] of finalPerBot) {
       const contentLower = resp.content.toLowerCase();
       if (!contentLower.includes(nameLower) && !contentLower.includes(firstNameLower)) continue;
 
@@ -2720,8 +2722,8 @@ async function findStoriesForRecipient(recipientName: string): Promise<{ aiName:
       // a single extracted section. Generous cap only to avoid runaway sizes.
       const excerpt = resp.content.slice(0, 30000);
 
-      const chatbot = availableChatbots.find(c => c.id === chatbotId);
-      results.push({ aiName: chatbot?.displayName ?? chatbotId, sessionTitle: session.title, excerpt, runId: run.id });
+      const chatbot = availableChatbots.find(c => c.id === resp.chatbotId);
+      results.push({ aiName: chatbot?.displayName ?? resp.chatbotId, sessionTitle: session.title, excerpt, runId: run.id });
     }
   }
 
@@ -2738,44 +2740,70 @@ async function pickBestStory(
 ): Promise<{ aiName: string; sessionTitle: string; excerpt: string; runId: string }> {
   if (candidates.length <= 1) return candidates[0];
 
-  // Drop terse "roster"/template-style outputs (e.g. HERO_1_NAME / _ACCOMPLISHMENT
-  // field fills) so only real prose narratives are considered. Fall back to the
-  // full set if filtering would leave nothing.
-  const isNarrative = (text: string) => {
-    const templateHits = (text.match(/(HERO_?\d|_NAME:|_ACCOMPLISHMENT|_TITLE:|_DEED|VILLAIN_|FORGOTTEN_)/gi) || []).length;
-    return templateHits < 3;
-  };
-  const narratives = candidates.filter(c => isNarrative(c.excerpt));
-  const base = narratives.length > 0 ? narratives : candidates;
+  // The AI outputs come in two shapes: flowing prose narratives, and terse
+  // "hero roster" templates (HERO_1_NAME / _ACCOMPLISHMENT field fills). We want
+  // a real STORY, so score each candidate by how much actual prose it contains
+  // and pick the richest narrative. Roster-only outputs score ~0 and lose.
+  const best = candidates
+    .map(c => ({ c, prose: proseCharCount(c.excerpt) }))
+    .sort((a, b) => b.prose - a.prose)[0];
+  return best.c;
+}
 
-  // Bound cost: rank only the 12 richest (already sorted longest-first).
-  const pool = base.slice(0, 12);
-  const list = pool
-    .map((c, i) => `STORY ${i} (by ${c.aiName}):\n${c.excerpt.slice(0, 2800)}`)
-    .join("\n\n---\n\n");
+// Count characters of genuine prose (flowing sentences), ignoring headings,
+// blockquotes, bullets, horizontal rules, and template label lines. Used to
+// tell a real narrative apart from a "hero roster" template.
+function proseCharCount(text: string): number {
+  const tmpl = /(HERO_?\d|_NAME:|_ACCOMPLISHMENT|_TITLE:|_DEED|VILLAIN_|FORGOTTEN_)/i;
+  return text.split(/\r?\n/).reduce((sum, raw) => {
+    const l = raw.trim();
+    if (!l) return sum;
+    if (/^[#=>*\-]/.test(l)) return sum;
+    if (/^\*?\*?[A-Z][A-Z0-9_ ]{2,}:\s*\*?\*?$/.test(l)) return sum;
+    if (tmpl.test(l)) return sum;
+    if (l.length < 40) return sum;
+    return sum + l.length;
+  }, 0);
+}
 
-  const prompt = `You are choosing the single best survival story to email to ${recipientName}.
+// Pull genuine celebratory "legacy" lines about the recipient out of the hero
+// roster sections across all stories (e.g. "Jahn Ballard — First Governor:
+// Established a fair governance system"). Returns deduped, cleaned highlights.
+function extractLegacyHighlights(
+  recipientName: string,
+  candidates: { aiName: string; excerpt: string }[],
+): { aiName: string; who: string; title: string; accomplishment: string }[] {
+  const first = recipientName.split(/\s+/)[0];
+  const firstRe = new RegExp(first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  const clean = (s: string) => s.replace(/\*\*/g, "").replace(/[*_`]/g, "").replace(/^>\s?/, "").trim();
+  const out: { aiName: string; who: string; title: string; accomplishment: string }[] = [];
+  const seen = new Set<string>();
 
-Requirements for the story you pick:
-1. It must read as an actual NARRATIVE — flowing prose that tells a real story with events, characters, and a journey.
-2. AVOID terse outputs: bullet-only lists, "hero rosters", scorecards, or template fills with field labels like "HERO_1_NAME" / "HERO_1_ACCOMPLISHMENT". These are NOT stories.
-3. Among the real narratives, prefer the one where ${recipientName} achieves the BEST OUTCOME and the GREATEST positive impact — most central to the group's survival and rebuilding, portrayed most positively.
-
-Respond with ONLY the number of the best story (for example: 3). No other text.
-
-${list}`;
-
-  try {
-    const result = await callOpenAI("gpt-4o", [{ role: "user", content: prompt }]);
-    const match = result.content.match(/\d+/);
-    if (match) {
-      const idx = parseInt(match[0], 10);
-      if (idx >= 0 && idx < pool.length) return pool[idx];
+  for (const cand of candidates) {
+    const lines = cand.excerpt.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const nm = clean(lines[i]).match(/_?NAME:\s*(.+)$/i);
+      if (!nm || !firstRe.test(nm[1])) continue;
+      let title = "", acc = "";
+      for (let k = i + 1; k < Math.min(i + 6, lines.length); k++) {
+        const l = clean(lines[k]);
+        const t = l.match(/_?TITLE:\s*(.+)$/i);
+        if (t && !title) title = t[1];
+        const a = l.match(/_?ACCOMPLISHMENT:\s*(.+)$/i);
+        if (a && !acc) {
+          acc = a[1];
+          const nxt = clean(lines[k + 1] || "");
+          if (nxt && nxt.length > 3 && !/_?(NAME|TITLE|ACCOMPLISHMENT|DEED|WHY)/i.test(nxt) && !/^#/.test(nxt)) acc += " " + nxt;
+        }
+      }
+      if (!acc) continue;
+      const key = acc.slice(0, 60).toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ aiName: cand.aiName, who: clean(nm[1]), title, accomplishment: acc });
     }
-  } catch (err) {
-    console.error("pickBestStory ranking failed, falling back to longest:", err);
   }
-  return pool[0];
+  return out;
 }
 
 // Minimal markdown -> email-safe HTML for the subset the AI stories actually use:
@@ -2841,13 +2869,30 @@ function markdownToEmailHtml(md: string): string {
   return html;
 }
 
-function buildStoryEmail(name: string, excerpts: { aiName: string; sessionTitle: string; excerpt: string }[]): string {
+function buildStoryEmail(
+  name: string,
+  excerpts: { aiName: string; sessionTitle: string; excerpt: string }[],
+  legacy: { aiName: string; who: string; title: string; accomplishment: string }[] = [],
+): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const blocks = excerpts.map(e => `
     <div style="border-left:3px solid #6366f1;padding:0.75rem 1.25rem;margin:1.5rem 0;background:#f9fafb;border-radius:0 8px 8px 0">
       <div style="font-size:0.75rem;color:#6b7280;margin-bottom:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">${e.aiName} — ${e.sessionTitle.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
       <div style="font-size:0.9rem;line-height:1.55;color:#1a1a1a">${markdownToEmailHtml(e.excerpt)}</div>
     </div>
   `).join("");
+
+  const tribute = legacy.length === 0 ? "" : `
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:2rem 0"/>
+    <div style="font-size:0.75rem;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem">Honoring ${esc(name.split(/\s+/)[0])}</div>
+    <p style="margin:0 0 1rem;font-size:0.9rem;color:#1a1a1a">Across many of these simulations, the AIs remembered you as a founding architect of the world that came after. Some of what they wrote:</p>
+    ${legacy.map(l => `
+      <div style="margin:0.9rem 0;padding-left:1rem;border-left:3px solid #c7d2fe">
+        <div style="font-size:0.95rem;color:#1a1a1a;line-height:1.5"><strong>${esc(l.who)}</strong>${l.title ? ` — <em>${esc(l.title)}</em>` : ""}</div>
+        <div style="font-size:0.9rem;color:#374151;line-height:1.5;margin-top:0.15rem">${esc(l.accomplishment)}</div>
+        <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.2rem">as imagined by ${esc(l.aiName)}</div>
+      </div>
+    `).join("")}`;
 
   return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:2rem;color:#1a1a1a">
     <div style="border-bottom:2px solid #6366f1;padding-bottom:1rem;margin-bottom:1.5rem">
@@ -2859,6 +2904,7 @@ function buildStoryEmail(name: string, excerpts: { aiName: string; sessionTitle:
       ? `Here's the AI survival story where you made the greatest impact rebuilding civilization:`
       : `You appeared in <strong>${excerpts.length}</strong> AI survival scenarios. Here's what the AIs imagined about your role in rebuilding civilization:`}</p>
     ${blocks}
+    ${tribute}
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:2rem 0"/>
     <p style="font-size:0.8rem;color:#9ca3af">Generated by the Cooperation Engine — <a href="https://cooperationbenchmark.org" style="color:#9ca3af">cooperationbenchmark.org</a></p>
   </body></html>`;
