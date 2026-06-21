@@ -2524,9 +2524,17 @@ export async function registerRoutes(
       const selected = [best];
       const html = buildStoryEmail(recipient.name, selected);
       const subject = `Your survival story — what ${best.aiName} imagined for ${recipient.name}`;
+
+      // Optional CC list from request body (string or string[])
+      const rawCc = (req.body as { cc?: string | string[] } | undefined)?.cc;
+      const cc = Array.isArray(rawCc)
+        ? rawCc.filter((e): e is string => typeof e === "string" && e.includes("@"))
+        : (typeof rawCc === "string" && rawCc.includes("@") ? [rawCc] : undefined);
+
       const { data, error } = await resend.emails.send({
         from: "Cooperation Engine <joel@cimc.io>",
         to: recipient.email,
+        ...(cc && cc.length ? { cc } : {}),
         subject,
         html,
       });
@@ -2539,7 +2547,7 @@ export async function registerRoutes(
         });
       }
 
-      res.json({ sent: true, id: data?.id, count: selected.length, message: `Sent ${selected.length} stor${selected.length === 1 ? "y" : "ies"} to ${recipient.email}.` });
+      res.json({ sent: true, id: data?.id, count: selected.length, cc: cc ?? [], message: `Sent the best story to ${recipient.email}${cc && cc.length ? ` (cc: ${cc.join(", ")})` : ""}.` });
     } catch (err) {
       console.error("Send stories error:", err);
       res.status(500).json({ error: "Failed to send story email" });
