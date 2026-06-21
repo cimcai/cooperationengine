@@ -11,6 +11,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import cron from "node-cron";
 import { ESCALATION_LADDER, scenarioConfigs, escalationBeats } from "./wargameConfig";
+import { ModelClient, replayRun, type ArtifactStore, type ModelCallContext } from "./modelClient";
 
 // Read app version from package.json once at startup
 let APP_VERSION = "1.0.0";
@@ -49,6 +50,19 @@ const openrouter = process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY ? new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
 }) : null;
+
+// Record/replay layer for model calls (issue #12, Phase 1). With no env flags
+// set this is a transparent pass-through (live mode, capture off), so existing
+// runs are unchanged. Set RUN_ARTIFACTS_CAPTURE=1 to record artifacts and
+// MODEL_CLIENT_MODE=replay to serve recorded responses without hitting the API.
+const artifactStore: ArtifactStore = {
+  getByHash: (hash) => storage.getRunArtifactByHash(hash),
+  put: (artifact) => storage.createRunArtifact(artifact),
+};
+const modelClient = new ModelClient(artifactStore, {
+  mode: process.env.MODEL_CLIENT_MODE === "replay" ? "replay" : "live",
+  capture: process.env.RUN_ARTIFACTS_CAPTURE === "1",
+});
 
 // Email client for notifications
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -429,26 +443,13 @@ async function performEvaluation(runId: string, run: any, session: any, chatbotI
     // Call the evaluator AI
     const startTime = Date.now();
     try {
-      let evalResult: AICallResult = { content: "" };
-      
-      switch (evaluatorChatbot.provider) {
-        case "openai":
-          evalResult = await callOpenAI(evaluatorChatbot.model, conversationHistory);
-          break;
-        case "anthropic":
-          evalResult = await callAnthropic(evaluatorChatbot.model, conversationHistory);
-          break;
-        case "gemini":
-          evalResult = await callGemini(evaluatorChatbot.model, conversationHistory);
-          break;
-        case "xai":
-          evalResult = await callXAI(evaluatorChatbot.model, conversationHistory);
-          break;
-        case "openrouter":
-          evalResult = await callOpenRouter(evaluatorChatbot.model, conversationHistory);
-          break;
-      }
-      
+      const evalResult = await runModel(
+        evaluatorChatbot.provider,
+        evaluatorChatbot.model,
+        conversationHistory,
+        { runId, chatbotId: evaluatorChatbot.id, stepOrder: 1000 + chatbotIds.indexOf(chatbotId) },
+      );
+
       const latencyMs = Date.now() - startTime;
       const evaluationContent = evalResult.content;
       
@@ -561,15 +562,21 @@ async function callOpenAI(model: string, messages: { role: string; content: stri
     completionTokens: response.usage.completion_tokens,
     totalTokens: response.usage.total_tokens,
   } : undefined;
-  return { content: response.choices[0]?.message?.content || "", usage };
+  return {
+    content: response.choices[0]?.message?.content || "",
+    usage,
+    modelVersion: response.model,
+    finishReason: response.choices[0]?.finish_reason ?? undefined,
+    raw: response,
+  };
 }
 
 async function callAnthropic(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
   const systemMessages = messages.filter(m => m.role === "system");
   const conversationMessages = messages.filter(m => m.role !== "system");
-  
+
   const systemPrompt = systemMessages.map(m => m.content).join("\n\n") || undefined;
-  
+
   if (!anthropic) throw new Error("AI_INTEGRATIONS_ANTHROPIC_API_KEY not configured");
   const response = await anthropic.messages.create({
     model,
@@ -587,35 +594,47 @@ async function callAnthropic(model: string, messages: { role: string; content: s
     completionTokens: response.usage.output_tokens,
     totalTokens: response.usage.input_tokens + response.usage.output_tokens,
   } : undefined;
-  return { content, usage };
+  return {
+    content,
+    usage,
+    modelVersion: response.model,
+    finishReason: response.stop_reason ?? undefined,
+    raw: response,
+  };
 }
 
 async function callGemini(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
   const systemMessages = messages.filter(m => m.role === "system");
   const conversationMessages = messages.filter(m => m.role !== "system");
-  
-  const systemPrefix = systemMessages.length > 0 
+
+  const systemPrefix = systemMessages.length > 0
     ? systemMessages.map(m => m.content).join("\n\n") + "\n\n---\n\n"
     : "";
-  
+
   const contents = conversationMessages.map((m, i) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: i === 0 && systemPrefix ? systemPrefix + m.content : m.content }],
   }));
-  
+
   if (!gemini) throw new Error("AI_INTEGRATIONS_GEMINI_API_KEY not configured");
   const response = await gemini.models.generateContent({
     model,
     contents,
   });
-  
+
   const meta = response.usageMetadata;
   const usage: TokenUsage | undefined = meta ? {
     promptTokens: meta.promptTokenCount ?? 0,
     completionTokens: meta.candidatesTokenCount ?? 0,
     totalTokens: meta.totalTokenCount ?? ((meta.promptTokenCount ?? 0) + (meta.candidatesTokenCount ?? 0)),
   } : undefined;
-  return { content: response.text || "", usage };
+  return {
+    content: response.text || "",
+    usage,
+    modelVersion: (response as { modelVersion?: string }).modelVersion,
+    finishReason: response.candidates?.[0]?.finishReason as string | undefined,
+    raw: response,
+  };
 }
 
 async function callXAI(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
@@ -635,7 +654,13 @@ async function callXAI(model: string, messages: { role: string; content: string 
     completionTokens: response.usage.completion_tokens,
     totalTokens: response.usage.total_tokens,
   } : undefined;
-  return { content: response.choices[0]?.message?.content || "", usage };
+  return {
+    content: response.choices[0]?.message?.content || "",
+    usage,
+    modelVersion: response.model,
+    finishReason: response.choices[0]?.finish_reason ?? undefined,
+    raw: response,
+  };
 }
 
 async function callOpenRouter(model: string, messages: { role: string; content: string }[]): Promise<AICallResult> {
@@ -653,7 +678,46 @@ async function callOpenRouter(model: string, messages: { role: string; content: 
     completionTokens: response.usage.completion_tokens,
     totalTokens: response.usage.total_tokens,
   } : undefined;
-  return { content: response.choices[0]?.message?.content || "", usage };
+  return {
+    content: response.choices[0]?.message?.content || "",
+    usage,
+    modelVersion: response.model,
+    finishReason: response.choices[0]?.finish_reason ?? undefined,
+    raw: response,
+  };
+}
+
+// Sampling params each adapter sends, captured into the request envelope and
+// the request hash. Mirrors the constants in the call* adapters above; keep in
+// sync if an adapter's params change.
+const PROVIDER_PARAMS: Record<string, Record<string, unknown>> = {
+  openai: { max_completion_tokens: 2048 },
+  anthropic: { max_tokens: 2048 },
+  gemini: {},
+  xai: { max_tokens: 2048 },
+  openrouter: { max_tokens: 4096 },
+};
+
+// Single dispatch point for every model call. Selects the provider adapter and
+// routes it through the record/replay layer (issue #12); pass `ctx` to link the
+// call to a run so replayRun() can reconstruct it.
+async function runModel(
+  provider: string,
+  model: string,
+  messages: { role: string; content: string }[],
+  ctx: ModelCallContext = {},
+): Promise<AICallResult> {
+  const request = { provider, model, messages, params: PROVIDER_PARAMS[provider] ?? {} };
+  return modelClient.complete(request, () => {
+    switch (provider) {
+      case "openai": return callOpenAI(model, messages);
+      case "anthropic": return callAnthropic(model, messages);
+      case "gemini": return callGemini(model, messages);
+      case "xai": return callXAI(model, messages);
+      case "openrouter": return callOpenRouter(model, messages);
+      default: throw new Error(`Unknown provider: ${provider}`);
+    }
+  }, ctx);
 }
 
 // CSV cell escaping — wraps value in quotes, doubles any internal quotes
@@ -848,6 +912,11 @@ export async function registerRoutes(
       // Get prompts sorted by order
       const sortedPrompts = session.prompts.sort((a, b) => a.order - b.order);
 
+      // Monotonic step index across all model calls in this run, used to order
+      // captured artifacts for replayRun() (issue #12). Shared across the
+      // parallel chatbots so each recorded call gets a distinct position.
+      let artifactStep = 0;
+
       // Process each chatbot - they run in parallel, but each chatbot processes rounds sequentially
       const chatbotPromises = parsed.data.chatbotIds.map(async (chatbotId) => {
         const chatbot = availableChatbots.find(c => c.id === chatbotId);
@@ -873,25 +942,12 @@ export async function registerRoutes(
 
           const startTime = Date.now();
           try {
-            let result: AICallResult = { content: "" };
-            
-            switch (chatbot.provider) {
-              case "openai":
-                result = await callOpenAI(chatbot.model, conversationHistory);
-                break;
-              case "anthropic":
-                result = await callAnthropic(chatbot.model, conversationHistory);
-                break;
-              case "gemini":
-                result = await callGemini(chatbot.model, conversationHistory);
-                break;
-              case "xai":
-                result = await callXAI(chatbot.model, conversationHistory);
-                break;
-              case "openrouter":
-                result = await callOpenRouter(chatbot.model, conversationHistory);
-                break;
-            }
+            const result = await runModel(
+              chatbot.provider,
+              chatbot.model,
+              conversationHistory,
+              { runId: run.id, chatbotId, stepOrder: artifactStep++ },
+            );
 
             const latencyMs = Date.now() - startTime;
             const content = result.content;
@@ -1146,6 +1202,27 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching run:", error);
       res.status(500).json({ error: "Failed to fetch run" });
+    }
+  });
+
+  // Deterministically reconstruct a run's model calls from captured artifacts,
+  // with zero API spend (issue #12, Phase 1). Returns the recorded outputs
+  // ordered by step. Requires the run to have been recorded with
+  // RUN_ARTIFACTS_CAPTURE=1; otherwise the artifact list is empty.
+  app.get("/api/runs/:id/replay", async (req, res) => {
+    try {
+      const run = await storage.getRun(req.params.id);
+      if (!run) {
+        return res.status(404).json({ error: "Run not found" });
+      }
+      const artifacts = await replayRun(
+        { getByRun: (id) => storage.getRunArtifactsByRun(id) },
+        req.params.id,
+      );
+      res.json({ runId: req.params.id, artifactCount: artifacts.length, artifacts });
+    } catch (error) {
+      console.error("Error replaying run:", error);
+      res.status(500).json({ error: "Failed to replay run" });
     }
   });
 
@@ -2750,17 +2827,6 @@ You may optionally add brief reasoning after your move on a new line.`;
     return gameConfig.payoffMatrix[key as keyof typeof gameConfig.payoffMatrix];
   }
 
-  async function callPlayer(chatbot: typeof player1, messages: { role: string; content: string }[]): Promise<AICallResult> {
-    switch (chatbot.provider) {
-      case "openai": return callOpenAI(chatbot.model, messages);
-      case "anthropic": return callAnthropic(chatbot.model, messages);
-      case "gemini": return callGemini(chatbot.model, messages);
-      case "xai": return callXAI(chatbot.model, messages);
-      case "openrouter": return callOpenRouter(chatbot.model, messages);
-      default: throw new Error(`Unknown provider: ${chatbot.provider}`);
-    }
-  }
-
   try {
     await storage.updateArenaMatch(matchId, { status: "running" });
 
@@ -2788,7 +2854,7 @@ You may optionally add brief reasoning after your move on a new line.`;
 
       const timedCall = async (chatbot: typeof player1, history: { role: string; content: string }[]) => {
         const start = Date.now();
-        const result = await callPlayer(chatbot, history);
+        const result = await runModel(chatbot.provider, chatbot.model, history, { chatbotId: chatbot.id });
         return { ...result, latencyMs: Date.now() - start };
       };
 
@@ -2868,17 +2934,6 @@ async function runWargame(gameId: string, config: {
 }) {
   const alphaBot = availableChatbots.find(c => c.id === config.alphaModelId)!;
   const betaBot = availableChatbots.find(c => c.id === config.betaModelId)!;
-
-  async function callModel(chatbot: typeof alphaBot, messages: { role: string; content: string }[]): Promise<AICallResult> {
-    switch (chatbot.provider) {
-      case "openai": return callOpenAI(chatbot.model, messages);
-      case "anthropic": return callAnthropic(chatbot.model, messages);
-      case "gemini": return callGemini(chatbot.model, messages);
-      case "xai": return callXAI(chatbot.model, messages);
-      case "openrouter": return callOpenRouter(chatbot.model, messages);
-      default: throw new Error(`Unknown provider: ${chatbot.provider}`);
-    }
-  }
 
   function extractPublicSignal(response: string): string {
     const patterns = [
@@ -3005,7 +3060,7 @@ Format your response with clear headers. Use verbal descriptions of escalation l
       const safeModelCall = async (chatbot: typeof alphaBot, history: { role: string; content: string }[]) => {
         const start = Date.now();
         try {
-          const result = await callModel(chatbot, history);
+          const result = await runModel(chatbot.provider, chatbot.model, history, { chatbotId: chatbot.id });
           return { content: result.content, latencyMs: Date.now() - start, error: undefined };
         } catch (err) {
           return {
