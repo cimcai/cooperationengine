@@ -1,7 +1,7 @@
 import type { Express, Response as ExpressResponse } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, insertStoryRecipientSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, insertStoryRecipientSchema, insertAcademicContributorSchema, academicSubmissionSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -2169,7 +2169,9 @@ export async function registerRoutes(
 
   app.get("/api/export", async (req, res) => {
     try {
-      const [sessions, runs, arenaMatches, toolkitItems, benchmarkWeights, constructs, wargames] = await Promise.all([
+      const passcode = (req.query.passcode as string | undefined) ?? (req.headers["x-passcode"] as string | undefined);
+      if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+      const [sessions, runs, arenaMatches, toolkitItems, benchmarkWeights, constructs, wargames, academics] = await Promise.all([
         storage.getSessions(),
         storage.getRuns(),
         storage.getArenaMatches(),
@@ -2177,7 +2179,9 @@ export async function registerRoutes(
         storage.getBenchmarkWeights(),
         storage.getConstructs(),
         storage.getWargames(),
+        storage.getAcademicContributors(),
       ]);
+      const academicSubmissions = academics.filter(a => a.status === "submitted");
 
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", "attachment; filename=cooperation-engine-export.zip");
@@ -2200,6 +2204,8 @@ export async function registerRoutes(
           benchmarkWeights: benchmarkWeights.length,
           constructs: constructs.length,
           wargames: wargames.length,
+          academicContributors: academics.length,
+          academicSubmissions: academicSubmissions.length,
         },
         files: [
           "metadata.json",
@@ -2212,6 +2218,8 @@ export async function registerRoutes(
           "constructs.csv",
           "wargames.csv",
           "wargames.json",
+          "academic_contributions.csv",
+          "academic_contributions.json",
         ],
       };
       archive.append(JSON.stringify(metadata, null, 2), { name: "metadata.json" });
@@ -2315,6 +2323,19 @@ export async function registerRoutes(
 
       // ── wargames.json (full turn-by-turn data) ─────────────────────
       archive.append(JSON.stringify(wargames, null, 2), { name: "wargames.json" });
+
+      // ── academic_contributions (submissions for the internal report) ──
+      const academicRows = [csvRow(["name", "email", "affiliation", "status", "submission_title", "submission_content", "submission_link", "contacted_at", "submitted_at"])];
+      for (const a of academics) {
+        academicRows.push(csvRow([
+          a.name ?? "", a.email, a.affiliation ?? "", a.status,
+          a.submissionTitle ?? "", a.submissionContent ?? "", a.submissionLink ?? "",
+          a.contactedAt ?? "", a.submittedAt ?? "",
+        ]));
+      }
+      archive.append(academicRows.join("\n"), { name: "academic_contributions.csv" });
+      const academicSubmissionsSafe = academicSubmissions.map(({ submissionToken, ...rest }) => rest);
+      archive.append(JSON.stringify(academicSubmissionsSafe, null, 2), { name: "academic_contributions.json" });
 
       await archive.finalize();
     } catch (error) {
@@ -2569,6 +2590,153 @@ export async function registerRoutes(
     }
   });
 
+  // ---- Academic contributors ----
+  app.get("/api/academics", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const academics = await storage.getAcademicContributors();
+      res.json(academics);
+    } catch { res.status(500).json({ error: "Failed to fetch academics" }); }
+  });
+
+  app.post("/api/academics", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+    const parsed = insertAcademicContributorSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+    try {
+      const existing = await storage.getAcademicContributorByEmail(parsed.data.email);
+      if (existing) return res.status(409).json({ error: "That email is already on the list" });
+      const academic = await storage.createAcademicContributor(parsed.data);
+      res.json(academic);
+    } catch { res.status(500).json({ error: "Failed to add academic" }); }
+  });
+
+  // Bulk add — accepts { entries: [{ name?, email, affiliation? }] }; skips duplicates and invalid emails
+  app.post("/api/academics/bulk", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+    const entries = (req.body as { entries?: unknown[] } | undefined)?.entries;
+    if (!Array.isArray(entries)) return res.status(400).json({ error: "Expected an 'entries' array" });
+    const added: string[] = [];
+    const skipped: { email?: string; reason: string }[] = [];
+    for (const raw of entries) {
+      const parsed = insertAcademicContributorSchema.safeParse(raw);
+      if (!parsed.success) {
+        skipped.push({ email: (raw as { email?: string })?.email, reason: parsed.error.issues[0].message });
+        continue;
+      }
+      try {
+        const existing = await storage.getAcademicContributorByEmail(parsed.data.email);
+        if (existing) { skipped.push({ email: parsed.data.email, reason: "already on the list" }); continue; }
+        await storage.createAcademicContributor(parsed.data);
+        added.push(parsed.data.email.toLowerCase());
+      } catch {
+        skipped.push({ email: parsed.data.email, reason: "failed to save" });
+      }
+    }
+    res.json({ added: added.length, skipped, addedEmails: added });
+  });
+
+  app.delete("/api/academics/:id", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      await storage.deleteAcademicContributor(req.params.id);
+      res.json({ ok: true });
+    } catch { res.status(500).json({ error: "Failed to delete academic" }); }
+  });
+
+  // Send a solicitation email to one academic with their unique upload link
+  app.post("/api/academics/:id/solicit", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+    if (!resend) return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)" });
+    const academics = await storage.getAcademicContributors();
+    const academic = academics.find(a => a.id === req.params.id);
+    if (!academic) return res.status(404).json({ error: "Academic not found" });
+    const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    try {
+      const link = `${baseUrl}/contribute/${academic.submissionToken}`;
+      const { data, error } = await resend.emails.send({
+        from: "Cooperation Engine <joel@cimc.io>",
+        to: academic.email,
+        subject: "Your contribution to the Cooperation Benchmark",
+        html: buildSolicitationEmail(academic.name, link),
+      });
+      if (error) {
+        console.error("Resend rejected solicitation email:", error);
+        return res.status(502).json({ sent: false, error: `Resend rejected the email: ${error.message || JSON.stringify(error)}` });
+      }
+      await storage.markAcademicContributorContacted(academic.id);
+      res.json({ sent: true, id: data?.id, message: `Solicitation sent to ${academic.email}.` });
+    } catch (err) {
+      console.error("Solicit academic error:", err);
+      res.status(500).json({ error: "Failed to send solicitation email" });
+    }
+  });
+
+  // Email every academic who hasn't submitted yet
+  app.post("/api/academics/solicit-all", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+    if (!resend) return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)" });
+    const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+    const academics = await storage.getAcademicContributors();
+    const targets = academics.filter(a => a.status === "pending" || a.status === "contacted");
+    let sent = 0;
+    const errors: { email: string; reason: string }[] = [];
+    for (const academic of targets) {
+      try {
+        const link = `${baseUrl}/contribute/${academic.submissionToken}`;
+        const { error } = await resend.emails.send({
+          from: "Cooperation Engine <joel@cimc.io>",
+          to: academic.email,
+          subject: "Your contribution to the Cooperation Benchmark",
+          html: buildSolicitationEmail(academic.name, link),
+        });
+        if (error) { errors.push({ email: academic.email, reason: error.message || "rejected" }); continue; }
+        await storage.markAcademicContributorContacted(academic.id);
+        sent++;
+      } catch (err) {
+        errors.push({ email: academic.email, reason: err instanceof Error ? err.message : "failed" });
+      }
+    }
+    res.json({ sent, total: targets.length, errors, message: `Sent ${sent} of ${targets.length} solicitation email(s).` });
+  });
+
+  // Public: load the contributor info for the submission form
+  app.get("/api/academics/submit/:token", async (req, res) => {
+    try {
+      const academic = await storage.getAcademicContributorByToken(req.params.token);
+      if (!academic) return res.status(404).json({ error: "This link is not valid." });
+      res.json({
+        name: academic.name ?? null,
+        affiliation: academic.affiliation ?? null,
+        alreadySubmitted: academic.status === "submitted",
+        submissionTitle: academic.submissionTitle ?? null,
+        submissionContent: academic.submissionContent ?? null,
+        submissionLink: academic.submissionLink ?? null,
+      });
+    } catch { res.status(500).json({ error: "Failed to load" }); }
+  });
+
+  // Public: save a contribution submitted via the form
+  app.post("/api/academics/submit/:token", async (req, res) => {
+    const parsed = academicSubmissionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+    try {
+      const academic = await storage.getAcademicContributorByToken(req.params.token);
+      if (!academic) return res.status(404).json({ error: "This link is not valid." });
+      await storage.saveAcademicSubmission(req.params.token, parsed.data);
+      res.json({ ok: true, message: "Thank you — your contribution has been received." });
+    } catch (err) {
+      console.error("Academic submission error:", err);
+      res.status(500).json({ error: "Failed to save your contribution" });
+    }
+  });
+
   // Schedule automatic weekly digest — every Monday at 9:00 AM UTC
   const BASE_URL = process.env.APP_BASE_URL || "https://cooperationbenchmark.org";
   cron.schedule("0 9 * * 1", async () => {
@@ -2638,6 +2806,25 @@ function buildWelcomeEmail(name: string | undefined, unsubUrl: string): string {
       You're receiving this because you signed up at cooperationbenchmark.org.<br/>
       <a href="${unsubUrl}" style="color:#9ca3af">Unsubscribe</a>
     </p>
+  </body></html>`;
+}
+
+function buildSolicitationEmail(name: string | undefined, link: string): string {
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+  return `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto;padding:2rem;color:#1a1a1a">
+    <div style="border-bottom:2px solid #6366f1;padding-bottom:1rem;margin-bottom:1.5rem">
+      <h1 style="margin:0;font-size:1.5rem;color:#6366f1">⚡ Cooperation Benchmark</h1>
+    </div>
+    <p>${greeting}</p>
+    <p>You're receiving this because you've contributed to — or could contribute to — the Cooperation Benchmark, a project that tests how AI models cooperate, negotiate, and make decisions under pressure (game-theory dilemmas, crisis simulations, and related scenarios).</p>
+    <p>We're gathering everyone's latest work. If you've made any progress — a new scenario, a dilemma, a critique of the existing tests, a dataset, or any idea worth evaluating — we'd love to include it in our internal report so the AI models can be evaluated against it.</p>
+    <p style="text-align:center;margin:2rem 0">
+      <a href="${link}" style="background:#6366f1;color:#fff;text-decoration:none;padding:0.75rem 1.5rem;border-radius:8px;font-weight:600;display:inline-block">Share your contribution</a>
+    </p>
+    <p style="font-size:0.85rem;color:#6b7280">Or paste this link into your browser:<br/><a href="${link}" style="color:#6366f1">${link}</a></p>
+    <p>Even a few sentences help. Thank you for being part of this.</p>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:2rem 0"/>
+    <p style="font-size:0.8rem;color:#9ca3af">This link is unique to you — please don't forward it. Cooperation Benchmark.</p>
   </body></html>`;
 }
 

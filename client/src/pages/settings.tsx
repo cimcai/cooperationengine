@@ -9,13 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2, Plus, BookOpen, Lock, ShieldCheck, Eye, EyeOff, LogIn, Globe } from "lucide-react";
+import { Settings as SettingsIcon, Zap, Info, Scale, RotateCcw, Download, DollarSign, Activity, TrendingUp, Mail, Users, Send, Trash2, Plus, BookOpen, Lock, ShieldCheck, Eye, EyeOff, LogIn, Globe, GraduationCap } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Chatbot, BenchmarkWeight, NewsletterSubscriber, StoryRecipient, LoginEvent } from "@shared/schema";
+import type { Chatbot, BenchmarkWeight, NewsletterSubscriber, StoryRecipient, LoginEvent, AcademicContributor } from "@shared/schema";
 import { useState, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
@@ -695,7 +696,7 @@ function SettingsContent({ superadminPasscode }: { superadminPasscode: string })
               </p>
               <Button
                 onClick={() => {
-                  window.location.href = "/api/export";
+                  window.location.href = `/api/export?passcode=${encodeURIComponent(superadminPasscode)}`;
                 }}
                 data-testid="button-export-data"
               >
@@ -708,6 +709,7 @@ function SettingsContent({ superadminPasscode }: { superadminPasscode: string })
 
         <LoginActivityPanel passcode={superadminPasscode} />
         <NewsletterAdminPanel passcode={superadminPasscode} />
+        <AcademicContributorsPanel passcode={superadminPasscode} />
         <StoryRecipientsPanel passcode={superadminPasscode} />
       </div>
     </div>
@@ -715,6 +717,232 @@ function SettingsContent({ superadminPasscode }: { superadminPasscode: string })
 }
 
 type PreviewStory = { aiName: string; sessionTitle: string; excerpt: string; runId: string };
+
+function AcademicContributorsPanel({ passcode }: { passcode: string }) {
+  const { toast } = useToast();
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newAffiliation, setNewAffiliation] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [solicitingId, setSolicitingId] = useState<string | null>(null);
+  const [solicitingAll, setSolicitingAll] = useState(false);
+  const [viewing, setViewing] = useState<AcademicContributor | null>(null);
+
+  const { data: academics = [], isLoading, refetch } = useQuery<AcademicContributor[]>({
+    queryKey: ["/api/academics"],
+    queryFn: async () => {
+      const res = await fetch("/api/academics", { headers: { "x-passcode": passcode } });
+      if (!res.ok) throw new Error("Unauthorized");
+      return res.json();
+    },
+    retry: false,
+  });
+
+  const submittedCount = academics.filter(a => a.status === "submitted").length;
+
+  const handleAdd = async () => {
+    if (!newEmail.trim()) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/academics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-passcode": passcode },
+        body: JSON.stringify({ name: newName.trim() || undefined, email: newEmail.trim(), affiliation: newAffiliation.trim() || undefined }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? "Failed"); }
+      setNewName(""); setNewEmail(""); setNewAffiliation("");
+      refetch();
+      toast({ title: "Academic added" });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    } finally { setAdding(false); }
+  };
+
+  const handleBulk = async () => {
+    const raw = bulkText.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+    const entries = raw
+      .map(s => {
+        const match = s.match(/[^\s<>"]+@[^\s<>"]+\.[^\s<>"]+/);
+        return match ? { email: match[0] } : null;
+      })
+      .filter((e): e is { email: string } => e !== null);
+    if (entries.length === 0) { toast({ title: "No valid emails found", variant: "destructive" }); return; }
+    setBulkLoading(true);
+    try {
+      const res = await fetch("/api/academics/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-passcode": passcode },
+        body: JSON.stringify({ entries }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      setBulkText("");
+      refetch();
+      toast({ title: `Loaded ${data.added} academic(s)`, description: data.skipped?.length ? `${data.skipped.length} skipped (duplicates/invalid)` : undefined });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    } finally { setBulkLoading(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await fetch(`/api/academics/${id}`, { method: "DELETE", headers: { "x-passcode": passcode } });
+      if (!res.ok) throw new Error("Failed to delete");
+      refetch();
+      toast({ title: "Removed" });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    }
+  };
+
+  const handleSolicit = async (a: AcademicContributor) => {
+    setSolicitingId(a.id);
+    try {
+      const res = await fetch(`/api/academics/${a.id}/solicit`, { method: "POST", headers: { "x-passcode": passcode } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to send");
+      refetch();
+      toast({ title: "Solicitation sent", description: data.message });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    } finally { setSolicitingId(null); }
+  };
+
+  const handleSolicitAll = async () => {
+    setSolicitingAll(true);
+    try {
+      const res = await fetch("/api/academics/solicit-all", { method: "POST", headers: { "x-passcode": passcode } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to send");
+      refetch();
+      toast({ title: "Solicitations sent", description: data.message });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    } finally { setSolicitingAll(false); }
+  };
+
+  const statusBadge = (status: AcademicContributor["status"]) => {
+    const map: Record<string, string> = {
+      pending: "bg-muted text-muted-foreground",
+      contacted: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+      submitted: "bg-green-500/15 text-green-600 dark:text-green-400",
+      declined: "bg-red-500/15 text-red-600 dark:text-red-400",
+    };
+    return <span className={`text-xs px-2 py-0.5 rounded-full ${map[status] ?? map.pending}`} data-testid={`status-academic-${status}`}>{status}</span>;
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <GraduationCap className="h-5 w-5" />
+            Academic Contributors
+          </CardTitle>
+          <CardDescription>
+            Load academics, email them a unique upload link, and collect their contributions for the internal report ({submittedCount} submitted of {academics.length})
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2 flex-wrap">
+            <Input placeholder="Name (optional)" value={newName} onChange={e => setNewName(e.target.value)} className="max-w-[160px]" data-testid="input-academic-name" />
+            <Input placeholder="Email address" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="max-w-[200px]" data-testid="input-academic-email" />
+            <Input placeholder="Affiliation (optional)" value={newAffiliation} onChange={e => setNewAffiliation(e.target.value)} className="max-w-[160px]" data-testid="input-academic-affiliation" />
+            <Button onClick={handleAdd} disabled={adding || !newEmail.trim()} data-testid="button-academic-add">
+              <Plus className="h-4 w-4 mr-1" />
+              {adding ? "Adding…" : "Add"}
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <Textarea
+              placeholder="Paste many emails at once (separated by commas, semicolons, or new lines) and click Load list"
+              value={bulkText}
+              onChange={e => setBulkText(e.target.value)}
+              rows={3}
+              data-testid="input-academic-bulk"
+            />
+            <Button variant="outline" size="sm" onClick={handleBulk} disabled={bulkLoading || !bulkText.trim()} data-testid="button-academic-bulk-load">
+              {bulkLoading ? "Loading…" : "Load list"}
+            </Button>
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-2">{[1, 2, 3].map(i => <div key={i} className="h-10 bg-muted animate-pulse rounded" />)}</div>
+          ) : academics.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No academics yet. Add one above or paste a list.</p>
+          ) : (
+            <div className="border rounded-md divide-y">
+              {academics.map(a => (
+                <div key={a.id} className="flex items-center justify-between px-3 py-2 gap-2" data-testid={`row-academic-${a.id}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{a.name || a.email}</p>
+                      {statusBadge(a.status)}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{a.name ? a.email : (a.affiliation ?? "")}</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    {a.status === "submitted" && (
+                      <Button size="sm" variant="outline" onClick={() => setViewing(a)} data-testid={`button-view-submission-${a.id}`}>
+                        View
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => handleSolicit(a)} disabled={solicitingId === a.id} data-testid={`button-solicit-academic-${a.id}`}>
+                      <Send className="h-3 w-3 mr-1" />
+                      {solicitingId === a.id ? "Sending…" : a.status === "pending" ? "Email" : "Re-send"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => handleDelete(a.id)} data-testid={`button-delete-academic-${a.id}`}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button onClick={handleSolicitAll} disabled={solicitingAll || academics.length === 0} data-testid="button-solicit-all-academics">
+              <Send className="h-4 w-4 mr-2" />
+              {solicitingAll ? "Sending…" : "Email everyone not yet submitted"}
+            </Button>
+            <Button variant="outline" onClick={() => refetch()} size="sm" data-testid="button-refresh-academics">
+              Refresh
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!viewing} onOpenChange={open => { if (!open) setViewing(null); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{viewing?.submissionTitle || "Submission"}</DialogTitle>
+            <DialogDescription>
+              From {viewing?.name || viewing?.email}{viewing?.affiliation ? ` · ${viewing.affiliation}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="h-[50vh] rounded border p-4">
+              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground" data-testid="text-submission-content">
+                {viewing?.submissionContent}
+              </pre>
+              {viewing?.submissionLink && (
+                <p className="mt-4 text-sm">
+                  Link: <a href={viewing.submissionLink} target="_blank" rel="noopener noreferrer" className="text-primary underline" data-testid="link-submission">{viewing.submissionLink}</a>
+                </p>
+              )}
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewing(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 function StoryRecipientsPanel({ passcode }: { passcode: string }) {
   const { toast } = useToast();

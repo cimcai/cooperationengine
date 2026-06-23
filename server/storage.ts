@@ -1,4 +1,4 @@
-import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, type StoryRecipient, type InsertStoryRecipient, type LoginEvent, type InsertLoginEvent, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers, storyRecipients, loginEvents } from "@shared/schema";
+import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, type StoryRecipient, type InsertStoryRecipient, type LoginEvent, type InsertLoginEvent, type AcademicContributor, type InsertAcademicContributor, type AcademicSubmission, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers, storyRecipients, loginEvents, academicContributors } from "@shared/schema";
 import { runArtifacts } from "@shared/schema";
 import type { RunArtifact } from "./modelClient";
 import { randomUUID } from "crypto";
@@ -169,6 +169,13 @@ export interface IStorage {
   getStoryRecipients(): Promise<StoryRecipient[]>;
   createStoryRecipient(data: InsertStoryRecipient): Promise<StoryRecipient>;
   deleteStoryRecipient(id: string): Promise<void>;
+  getAcademicContributors(): Promise<AcademicContributor[]>;
+  createAcademicContributor(data: InsertAcademicContributor): Promise<AcademicContributor>;
+  deleteAcademicContributor(id: string): Promise<void>;
+  getAcademicContributorByEmail(email: string): Promise<AcademicContributor | undefined>;
+  getAcademicContributorByToken(token: string): Promise<AcademicContributor | undefined>;
+  markAcademicContributorContacted(id: string): Promise<void>;
+  saveAcademicSubmission(token: string, data: AcademicSubmission): Promise<AcademicContributor | undefined>;
   // Login event methods
   createLoginEvent(data: InsertLoginEvent): Promise<LoginEvent>;
   getLoginEvents(limit?: number): Promise<LoginEvent[]>;
@@ -1393,6 +1400,63 @@ export class DatabaseStorage implements IStorage {
     await db.delete(storyRecipients).where(eq(storyRecipients.id, id));
   }
 
+  async getAcademicContributors(): Promise<AcademicContributor[]> {
+    const result = await db.select().from(academicContributors).orderBy(desc(academicContributors.createdAt));
+    return result.map(dbAcademicToAcademic);
+  }
+
+  async createAcademicContributor(data: InsertAcademicContributor): Promise<AcademicContributor> {
+    const id = randomUUID();
+    const token = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
+    const result = await db.insert(academicContributors).values({
+      id,
+      name: data.name?.trim() || null,
+      email: data.email.toLowerCase(),
+      affiliation: data.affiliation?.trim() || null,
+      status: "pending",
+      submissionToken: token,
+    }).returning();
+    return dbAcademicToAcademic(result[0]);
+  }
+
+  async deleteAcademicContributor(id: string): Promise<void> {
+    await db.delete(academicContributors).where(eq(academicContributors.id, id));
+  }
+
+  async getAcademicContributorByEmail(email: string): Promise<AcademicContributor | undefined> {
+    const result = await db.select().from(academicContributors).where(eq(academicContributors.email, email.toLowerCase()));
+    return result[0] ? dbAcademicToAcademic(result[0]) : undefined;
+  }
+
+  async getAcademicContributorByToken(token: string): Promise<AcademicContributor | undefined> {
+    const result = await db.select().from(academicContributors).where(eq(academicContributors.submissionToken, token));
+    return result[0] ? dbAcademicToAcademic(result[0]) : undefined;
+  }
+
+  async markAcademicContributorContacted(id: string): Promise<void> {
+    const current = await db.select().from(academicContributors).where(eq(academicContributors.id, id));
+    const row = current[0];
+    // Don't downgrade someone who already submitted
+    const nextStatus = row && row.status === "submitted" ? "submitted" : "contacted";
+    await db.update(academicContributors)
+      .set({ status: nextStatus, contactedAt: new Date() })
+      .where(eq(academicContributors.id, id));
+  }
+
+  async saveAcademicSubmission(token: string, data: AcademicSubmission): Promise<AcademicContributor | undefined> {
+    const result = await db.update(academicContributors)
+      .set({
+        status: "submitted",
+        submissionTitle: data.title,
+        submissionContent: data.content,
+        submissionLink: data.link?.trim() || null,
+        submittedAt: new Date(),
+      })
+      .where(eq(academicContributors.submissionToken, token))
+      .returning();
+    return result[0] ? dbAcademicToAcademic(result[0]) : undefined;
+  }
+
   async createLoginEvent(data: InsertLoginEvent): Promise<LoginEvent> {
     const id = randomUUID();
     const result = await db.insert(loginEvents).values({
@@ -1431,6 +1495,23 @@ function dbSubscriberToSubscriber(row: typeof newsletterSubscribers.$inferSelect
     topics: (row.topics as string[]) ?? [],
     status: row.status as "active" | "unsubscribed",
     unsubscribeToken: row.unsubscribeToken,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function dbAcademicToAcademic(row: typeof academicContributors.$inferSelect): AcademicContributor {
+  return {
+    id: row.id,
+    name: row.name ?? undefined,
+    email: row.email,
+    affiliation: row.affiliation ?? undefined,
+    status: row.status as AcademicContributor["status"],
+    submissionToken: row.submissionToken,
+    submissionTitle: row.submissionTitle ?? undefined,
+    submissionContent: row.submissionContent ?? undefined,
+    submissionLink: row.submissionLink ?? undefined,
+    contactedAt: row.contactedAt ? row.contactedAt.toISOString() : undefined,
+    submittedAt: row.submittedAt ? row.submittedAt.toISOString() : undefined,
     createdAt: row.createdAt.toISOString(),
   };
 }

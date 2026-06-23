@@ -14,6 +14,7 @@ import SettingsPage from "@/pages/settings";
 import ResultsPage from "@/pages/results";
 import BenchmarkPage from "@/pages/benchmark";
 import BenchmarkSubmissionPage from "@/pages/benchmark-submission";
+import ContributePage from "@/pages/contribute";
 import ProposalsAdminPage from "@/pages/proposals-admin";
 import ArenaPage from "@/pages/arena";
 import WargamesPage from "@/pages/wargames";
@@ -73,6 +74,9 @@ function AppRouter() {
   // Public routes - no authentication required
   if (location === "/" || location === "/benchmark-submit" || location === "/propose") {
     return <BenchmarkSubmissionPage />;
+  }
+  if (location.startsWith("/contribute/")) {
+    return <ContributePage />;
   }
   
   // All other routes require authentication

@@ -835,3 +835,51 @@ export interface InsertLoginEvent {
   ip?: string;
   userAgent?: string;
 }
+
+// Academic contributors — researchers solicited to submit benchmark contributions
+export const academicContributors = pgTable("academic_contributors", {
+  id: varchar("id").primaryKey(),
+  name: text("name"),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  affiliation: text("affiliation"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  submissionToken: varchar("submission_token", { length: 64 }).notNull().unique(),
+  submissionTitle: text("submission_title"),
+  submissionContent: text("submission_content"),
+  submissionLink: text("submission_link"),
+  contactedAt: timestamp("contacted_at"),
+  submittedAt: timestamp("submitted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export interface AcademicContributor {
+  id: string;
+  name?: string;
+  email: string;
+  affiliation?: string;
+  status: "pending" | "contacted" | "submitted" | "declined";
+  submissionToken: string;
+  submissionTitle?: string;
+  submissionContent?: string;
+  submissionLink?: string;
+  contactedAt?: string;
+  submittedAt?: string;
+  createdAt: string;
+}
+
+export const insertAcademicContributorSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().email("Please enter a valid email address"),
+  affiliation: z.string().optional(),
+});
+
+export type InsertAcademicContributor = z.infer<typeof insertAcademicContributorSchema>;
+
+// Public submission form payload
+export const academicSubmissionSchema = z.object({
+  title: z.string().min(1, "Please add a short title"),
+  content: z.string().min(1, "Please describe your contribution"),
+  link: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
+});
+
+export type AcademicSubmission = z.infer<typeof academicSubmissionSchema>;
