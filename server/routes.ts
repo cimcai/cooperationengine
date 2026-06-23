@@ -1098,6 +1098,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.message });
       }
 
+      // Reject unknown or disabled models before doing any work
+      const invalidChatbots = parsed.data.chatbotIds.filter(id => {
+        const bot = availableChatbots.find(c => c.id === id);
+        return !bot || !bot.enabled;
+      });
+      if (invalidChatbots.length > 0) {
+        return res.status(400).json({ error: `Unknown or disabled model(s): ${invalidChatbots.join(", ")}` });
+      }
+
       // Create the run
       const run = await storage.createRun(parsed.data);
       await storage.updateRun(run.id, { status: "running" });

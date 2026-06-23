@@ -35,6 +35,7 @@ Preferred communication style: Simple, everyday language.
 - **Google**: Gemini 2.5 Flash, Gemini 2.5 Pro via `@google/genai`
 - **xAI**: Grok 3 via direct xAI API (requires XAI_API_KEY)
 - **OpenRouter**: Grok 4, DeepSeek R1, Llama 4 Maverick via OpenRouter integration
+- **Legacy models (via OpenRouter)**: GPT-3.5 Turbo, GPT-4, GPT-4 Turbo, Claude 3 Haiku — enabled so the same benchmarks can be run on older models. Claude 3 Opus/Sonnet and Gemini 1.5 Pro/Flash are listed but disabled (retired by all reachable providers)
 - **Configuration**: Environment variables for API keys and base URLs through Replit AI Integrations
 
 ### Wargames (Head-to-Head Crisis Simulations)
