@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "dCEeGl-wbKKbQf-RJtG9J"
+uri = "file://research-summary.md"
+type = "text"
+title = "Cooperation Engine — Research Summary"
