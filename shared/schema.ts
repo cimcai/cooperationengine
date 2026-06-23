@@ -878,8 +878,11 @@ export type InsertAcademicContributor = z.infer<typeof insertAcademicContributor
 // Public submission form payload
 export const academicSubmissionSchema = z.object({
   title: z.string().min(1, "Please add a short title"),
-  content: z.string().min(1, "Please describe your contribution"),
+  content: z.string().optional().or(z.literal("")),
   link: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
-});
+}).refine(
+  (data) => (data.content?.trim().length ?? 0) > 0 || (data.link?.trim().length ?? 0) > 0,
+  { message: "Please add either a description or a link to your contribution", path: ["content"] },
+);
 
 export type AcademicSubmission = z.infer<typeof academicSubmissionSchema>;

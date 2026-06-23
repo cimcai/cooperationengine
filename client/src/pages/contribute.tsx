@@ -58,7 +58,7 @@ export default function ContributePage() {
   const handleSubmit = async () => {
     setFormError(null);
     if (!title.trim()) { setFormError("Please add a short title."); return; }
-    if (!content.trim()) { setFormError("Please describe your contribution."); return; }
+    if (!content.trim() && !link.trim()) { setFormError("Please add either a description or a link (e.g. a Google Doc)."); return; }
     setSubmitting(true);
     try {
       const res = await fetch(`/api/academics/submit/${token}`, {
@@ -130,7 +130,7 @@ export default function ContributePage() {
                 <Label htmlFor="contribute-content">Your contribution</Label>
                 <Textarea
                   id="contribute-content"
-                  placeholder="Describe your scenario, dilemma, dataset, critique, or idea. Paste the full text if you have it."
+                  placeholder="Describe your scenario, dilemma, dataset, critique, or idea. Paste the full text if you have it — or just share a link below."
                   value={content}
                   onChange={e => setContent(e.target.value)}
                   rows={10}
@@ -138,14 +138,15 @@ export default function ContributePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="contribute-link">Link (optional)</Label>
+                <Label htmlFor="contribute-link">Link</Label>
                 <Input
                   id="contribute-link"
-                  placeholder="https://… a paper, doc, or dataset"
+                  placeholder="https://… a Google Doc, paper, dataset, or other link"
                   value={link}
                   onChange={e => setLink(e.target.value)}
                   data-testid="input-contribute-link"
                 />
+                <p className="text-xs text-muted-foreground">You can paste text above, share a link, or both. A link on its own is fine.</p>
               </div>
               {formError && <p className="text-sm text-destructive" data-testid="text-contribute-form-error">{formError}</p>}
               <Button onClick={handleSubmit} disabled={submitting} className="w-full" data-testid="button-contribute-submit">
