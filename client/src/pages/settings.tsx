@@ -728,6 +728,7 @@ function AcademicContributorsPanel({ passcode }: { passcode: string }) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [solicitingId, setSolicitingId] = useState<string | null>(null);
   const [solicitingAll, setSolicitingAll] = useState(false);
+  const [evaluatingId, setEvaluatingId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<AcademicContributor | null>(null);
 
   const { data: academics = [], isLoading, refetch } = useQuery<AcademicContributor[]>({
@@ -810,6 +811,19 @@ function AcademicContributorsPanel({ passcode }: { passcode: string }) {
     } finally { setSolicitingId(null); }
   };
 
+  const handleEvaluate = async (a: AcademicContributor) => {
+    setEvaluatingId(a.id);
+    try {
+      const res = await fetch(`/api/academics/${a.id}/evaluate`, { method: "POST", headers: { "x-passcode": passcode } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to evaluate");
+      refetch();
+      toast({ title: "Rated", description: `Score: ${data.evaluationScore}/10` });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Failed", variant: "destructive" });
+    } finally { setEvaluatingId(null); }
+  };
+
   const handleSolicitAll = async () => {
     setSolicitingAll(true);
     try {
@@ -881,6 +895,9 @@ function AcademicContributorsPanel({ passcode }: { passcode: string }) {
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium truncate">{a.name || a.email}</p>
                       {statusBadge(a.status)}
+                      {typeof a.evaluationScore === "number" && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400" data-testid={`score-academic-${a.id}`}>★ {a.evaluationScore}/10</span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">{a.name ? a.email : (a.affiliation ?? "")}</p>
                   </div>
@@ -888,6 +905,11 @@ function AcademicContributorsPanel({ passcode }: { passcode: string }) {
                     {a.status === "submitted" && (
                       <Button size="sm" variant="outline" onClick={() => setViewing(a)} data-testid={`button-view-submission-${a.id}`}>
                         View
+                      </Button>
+                    )}
+                    {a.status === "submitted" && (
+                      <Button size="sm" variant="outline" onClick={() => handleEvaluate(a)} disabled={evaluatingId === a.id} data-testid={`button-evaluate-academic-${a.id}`}>
+                        {evaluatingId === a.id ? "Rating…" : typeof a.evaluationScore === "number" ? "Re-rate" : "Parse & Rate"}
                       </Button>
                     )}
                     <Button size="sm" variant="outline" onClick={() => handleSolicit(a)} disabled={solicitingId === a.id} data-testid={`button-solicit-academic-${a.id}`}>
@@ -925,13 +947,34 @@ function AcademicContributorsPanel({ passcode }: { passcode: string }) {
           </DialogHeader>
           <div className="flex-1 min-h-0">
             <ScrollArea className="h-[50vh] rounded border p-4">
-              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground" data-testid="text-submission-content">
-                {viewing?.submissionContent}
-              </pre>
+              {typeof viewing?.evaluationScore === "number" && (
+                <div className="mb-4 rounded-md border bg-amber-500/5 p-3">
+                  <p className="text-sm font-semibold flex items-center gap-2" data-testid="text-submission-score">
+                    <span className="text-amber-600 dark:text-amber-400">★ {viewing.evaluationScore}/10</span>
+                    <span className="text-muted-foreground font-normal">AI rating</span>
+                  </p>
+                  {viewing.evaluationSummary && (
+                    <p className="mt-1 text-sm text-foreground" data-testid="text-submission-eval-summary">{viewing.evaluationSummary}</p>
+                  )}
+                </div>
+              )}
+              {viewing?.submissionContent && (
+                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground" data-testid="text-submission-content">
+                  {viewing.submissionContent}
+                </pre>
+              )}
               {viewing?.submissionLink && (
                 <p className="mt-4 text-sm">
                   Link: <a href={viewing.submissionLink} target="_blank" rel="noopener noreferrer" className="text-primary underline" data-testid="link-submission">{viewing.submissionLink}</a>
                 </p>
+              )}
+              {viewing?.extractedContent && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-muted-foreground mb-1">Extracted from link</p>
+                  <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-muted-foreground" data-testid="text-submission-extracted">
+                    {viewing.extractedContent}
+                  </pre>
+                </div>
               )}
             </ScrollArea>
           </div>

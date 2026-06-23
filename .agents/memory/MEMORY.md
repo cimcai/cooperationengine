@@ -1,6 +1,7 @@
 - [OpenRouter model slug deprecation](openrouter-model-deprecation.md) — retired slugs 404 with the replacement name; update model: in storage.ts and restart
 - [PDF markdown rendering](pdf-markdown-rendering.md) — render markdown stories to PDF via pdfkit (inline-bold continued gotcha) + email as Resend base64 attachment.
 - [Completing truncated AI responses](continuing-truncated-ai-responses.md) — run responses cut off by max_tokens; finish via assistant-prefill continuation; stream synchronously (background jobs die at tool boundary).
+- [SSRF guard for link fetching](ssrf-link-fetching.md) — never fetch a user-supplied URL without scheme/port/private-IP checks, manual redirect re-validation, timeout, and size cap.
 - [Aggregate export auth](aggregate-export-auth.md) — adding a new entity to a bulk/export endpoint can leak PII/secret tokens; re-check auth + strip tokens.
 - [drizzle-kit push interactive TUI](drizzle-push-interactive-tui.md) — db:push risky-change prompt ignores piped stdin; apply the constraint via direct psql SQL.
 - [Story-email step selection](story-email-step-selection.md) — pick story by scanning ALL run steps + prose-richness, not the final step (sessions append a roster step after the narrative).

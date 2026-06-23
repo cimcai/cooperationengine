@@ -9,6 +9,8 @@ import { Resend } from "resend";
 import archiver from "archiver";
 import { readFileSync } from "fs";
 import { join } from "path";
+import dns from "dns/promises";
+import net from "net";
 import cron from "node-cron";
 import { ESCALATION_LADDER, scenarioConfigs, escalationBeats } from "./wargameConfig";
 import { ModelClient, replayRun, type ArtifactStore, type ModelCallContext } from "./modelClient";
@@ -718,6 +720,200 @@ async function runModel(
       default: throw new Error(`Unknown provider: ${provider}`);
     }
   }, ctx);
+}
+
+// ── Academic contribution parsing + AI rating ───────────────────────────────
+const EVALUATOR_PROVIDER = "gemini";
+const EVALUATOR_MODEL = "gemini-2.5-flash";
+
+function googleDocExportUrl(url: string): string | null {
+  const m = url.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? `https://docs.google.com/document/d/${m[1]}/export?format=txt` : null;
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// ── SSRF protection for fetching contributor-supplied links ──────────────────
+// Block requests that resolve to private / loopback / link-local / reserved
+// ranges so a submitted URL can't probe internal services or cloud metadata.
+function isPrivateIPv4(ip: string): boolean {
+  const p = ip.split(".").map(Number);
+  if (p.length !== 4 || p.some(n => Number.isNaN(n) || n < 0 || n > 255)) return true;
+  const [a, b, c] = p;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true;            // link-local (incl. 169.254.169.254 metadata)
+  if (a === 172 && b >= 16 && b <= 31) return true;   // 172.16.0.0/12
+  if (a === 192 && b === 168) return true;            // 192.168.0.0/16
+  if (a === 192 && b === 0 && c === 0) return true;    // 192.0.0.0/24
+  if (a === 100 && b >= 64 && b <= 127) return true;  // CGNAT 100.64.0.0/10
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18.0.0/15
+  if (a >= 224) return true;                           // multicast + reserved + broadcast
+  return false;
+}
+
+function isPrivateIPv6(ip: string): boolean {
+  const lower = ip.toLowerCase();
+  if (lower === "::1" || lower === "::") return true;
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return isPrivateIPv4(mapped[1]);
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;   // unique-local fc00::/7
+  if (/^fe[89ab]/.test(lower)) return true;                            // link-local fe80::/10
+  if (lower.startsWith("ff")) return true;                             // multicast
+  return false;
+}
+
+function isPrivateIp(ip: string): boolean {
+  const kind = net.isIP(ip);
+  if (kind === 4) return isPrivateIPv4(ip);
+  if (kind === 6) return isPrivateIPv6(ip);
+  return true; // not a recognizable IP → treat as unsafe
+}
+
+// Validate scheme/port and ensure every resolved address is public.
+async function assertPublicUrl(rawUrl: string): Promise<void> {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { throw new Error("Invalid URL"); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error("Only http/https links are allowed");
+  }
+  const port = u.port ? Number(u.port) : (u.protocol === "https:" ? 443 : 80);
+  if (port !== 80 && port !== 443) throw new Error("Only standard web ports are allowed");
+  if (net.isIP(u.hostname)) {
+    if (isPrivateIp(u.hostname)) throw new Error("Refusing to fetch a private address");
+    return;
+  }
+  let records: { address: string }[];
+  try { records = await dns.lookup(u.hostname, { all: true }); }
+  catch { throw new Error("Could not resolve host"); }
+  if (records.length === 0) throw new Error("Could not resolve host");
+  for (const r of records) {
+    if (isPrivateIp(r.address)) throw new Error("Refusing to fetch a private address");
+  }
+}
+
+// Read a response body but stop after maxBytes to avoid buffering huge payloads.
+async function readCapped(resp: Response, maxBytes: number): Promise<string> {
+  const reader = resp.body?.getReader();
+  if (!reader) return (await resp.text()).slice(0, maxBytes);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      chunks.push(value);
+      total += value.length;
+      if (total >= maxBytes) { await reader.cancel(); break; }
+    }
+  }
+  return Buffer.concat(chunks.map(c => Buffer.from(c))).toString("utf8");
+}
+
+// Fetch a submitted link and extract readable text. Google Docs are pulled via
+// their plain-text export endpoint (works when the doc is link-viewable).
+// Redirects are followed manually so each hop is re-validated against SSRF rules.
+async function fetchAndExtractText(url: string): Promise<string> {
+  let current = googleDocExportUrl(url) ?? url;
+  let resp: Response | null = null;
+  for (let hop = 0; hop < 5; hop++) {
+    await assertPublicUrl(current);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    let r: Response;
+    try {
+      r = await fetch(current, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { "User-Agent": "Mozilla/5.0 (CooperationEngine contribution fetcher)" },
+      });
+    } catch (e) {
+      throw new Error((e as Error).name === "AbortError" ? "Link fetch timed out" : `Could not fetch link`);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (r.status >= 300 && r.status < 400 && r.headers.get("location")) {
+      current = new URL(r.headers.get("location")!, current).toString();
+      continue;
+    }
+    resp = r;
+    break;
+  }
+  if (!resp) throw new Error("Too many redirects");
+  if (!resp.ok) throw new Error(`Could not fetch link (HTTP ${resp.status})`);
+  const ctype = (resp.headers.get("content-type") ?? "").toLowerCase();
+  const isText = ctype.includes("text/html") || ctype.includes("text/plain") ||
+    ctype.includes("application/json") || ctype.includes("application/xml") ||
+    ctype.includes("text/") || ctype === "";
+  if (!isText) throw new Error("Link is not a readable text document");
+  const MAX = 40000;
+  const body = await readCapped(resp, MAX * 4); // bytes; allow headroom before char trim
+  let text = ctype.includes("text/html") ? htmlToText(body) : body.trim();
+  if (text.length > MAX) text = text.slice(0, MAX) + "\n…[truncated]";
+  return text.trim();
+}
+
+function stripJsonFence(s: string): string {
+  return s.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+}
+
+// Ask an AI model to rate a contribution 1–10 with a short written assessment.
+async function evaluateContribution(title: string, text: string): Promise<{ score: number; summary: string }> {
+  const prompt = `You are reviewing a submitted contribution to "Cooperation Engine", an AI cooperation and safety benchmark. Contributions can be scenarios, dilemmas, datasets, critiques, or research ideas that could become evaluation tests.
+
+Rate this contribution from 1 (weak) to 10 (excellent) considering: relevance to AI cooperation/safety benchmarking, novelty, rigor and clarity, and how usable it is as a concrete benchmark test/scenario/dataset.
+
+Respond with ONLY a JSON object, no markdown, in this exact shape:
+{"score": <integer 1-10>, "summary": "<2-4 sentence assessment naming the main strengths and concerns>"}
+
+Title: ${title}
+
+Contribution:
+${text}`;
+  const result = await runModel(EVALUATOR_PROVIDER, EVALUATOR_MODEL, [{ role: "user", content: prompt }]);
+  let parsed: any = null;
+  try { parsed = JSON.parse(stripJsonFence(result.content)); } catch { parsed = null; }
+  let score = parsed && typeof parsed.score === "number" ? Math.round(parsed.score) : NaN;
+  if (!Number.isFinite(score)) score = 1;
+  score = Math.max(1, Math.min(10, score));
+  const summary = parsed?.summary
+    ? String(parsed.summary)
+    : (result.content || "No summary produced.").slice(0, 2000);
+  return { score, summary };
+}
+
+// Parse the contributor's link (if any), combine with pasted text, rate it, and persist.
+async function runAcademicEvaluation(id: string) {
+  const academic = await storage.getAcademicContributor(id);
+  if (!academic) return undefined;
+  let extracted = "";
+  if (academic.submissionLink) {
+    try {
+      extracted = await fetchAndExtractText(academic.submissionLink);
+    } catch (e) {
+      extracted = `[Could not fetch link: ${(e as Error).message}]`;
+    }
+  }
+  const pasted = academic.submissionContent?.trim() ?? "";
+  const combined = [pasted, extracted].filter(Boolean).join("\n\n---\n\n").trim();
+  const { score, summary } = await evaluateContribution(
+    academic.submissionTitle ?? "(untitled)",
+    combined || "(no content provided)",
+  );
+  return storage.saveAcademicEvaluation(id, { extractedContent: extracted, evaluationScore: score, evaluationSummary: summary });
 }
 
 // CSV cell escaping — wraps value in quotes, doubles any internal quotes
@@ -2325,12 +2521,13 @@ export async function registerRoutes(
       archive.append(JSON.stringify(wargames, null, 2), { name: "wargames.json" });
 
       // ── academic_contributions (submissions for the internal report) ──
-      const academicRows = [csvRow(["name", "email", "affiliation", "status", "submission_title", "submission_content", "submission_link", "contacted_at", "submitted_at"])];
+      const academicRows = [csvRow(["name", "email", "affiliation", "status", "submission_title", "submission_content", "submission_link", "evaluation_score", "evaluation_summary", "contacted_at", "submitted_at", "evaluated_at"])];
       for (const a of academics) {
         academicRows.push(csvRow([
           a.name ?? "", a.email, a.affiliation ?? "", a.status,
           a.submissionTitle ?? "", a.submissionContent ?? "", a.submissionLink ?? "",
-          a.contactedAt ?? "", a.submittedAt ?? "",
+          a.evaluationScore ?? "", a.evaluationSummary ?? "",
+          a.contactedAt ?? "", a.submittedAt ?? "", a.evaluatedAt ?? "",
         ]));
       }
       archive.append(academicRows.join("\n"), { name: "academic_contributions.csv" });
@@ -2730,10 +2927,28 @@ export async function registerRoutes(
       const academic = await storage.getAcademicContributorByToken(req.params.token);
       if (!academic) return res.status(404).json({ error: "This link is not valid." });
       await storage.saveAcademicSubmission(req.params.token, parsed.data);
+      // Parse + rate in the background so the contributor gets an instant confirmation.
+      runAcademicEvaluation(academic.id).catch(err => console.error("Auto-evaluation failed:", err));
       res.json({ ok: true, message: "Thank you — your contribution has been received." });
     } catch (err) {
       console.error("Academic submission error:", err);
       res.status(500).json({ error: "Failed to save your contribution" });
+    }
+  });
+
+  // Admin: (re-)parse a contributor's link and have an AI rate the contribution
+  app.post("/api/academics/:id/evaluate", async (req, res) => {
+    const passcode = req.headers["x-passcode"] as string | undefined;
+    if (!isValidSuperadminPasscode(passcode)) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const academic = await storage.getAcademicContributor(req.params.id);
+      if (!academic) return res.status(404).json({ error: "Not found" });
+      if (academic.status !== "submitted") return res.status(400).json({ error: "This contributor has not submitted anything yet." });
+      const updated = await runAcademicEvaluation(req.params.id);
+      res.json(updated);
+    } catch (err) {
+      console.error("Academic evaluation error:", err);
+      res.status(500).json({ error: "Failed to evaluate contribution" });
     }
   });
 

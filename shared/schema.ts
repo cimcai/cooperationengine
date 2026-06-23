@@ -847,6 +847,10 @@ export const academicContributors = pgTable("academic_contributors", {
   submissionTitle: text("submission_title"),
   submissionContent: text("submission_content"),
   submissionLink: text("submission_link"),
+  extractedContent: text("extracted_content"),
+  evaluationScore: integer("evaluation_score"),
+  evaluationSummary: text("evaluation_summary"),
+  evaluatedAt: timestamp("evaluated_at"),
   contactedAt: timestamp("contacted_at"),
   submittedAt: timestamp("submitted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -862,6 +866,10 @@ export interface AcademicContributor {
   submissionTitle?: string;
   submissionContent?: string;
   submissionLink?: string;
+  extractedContent?: string;
+  evaluationScore?: number;
+  evaluationSummary?: string;
+  evaluatedAt?: string;
   contactedAt?: string;
   submittedAt?: string;
   createdAt: string;

@@ -176,6 +176,8 @@ export interface IStorage {
   getAcademicContributorByToken(token: string): Promise<AcademicContributor | undefined>;
   markAcademicContributorContacted(id: string): Promise<void>;
   saveAcademicSubmission(token: string, data: AcademicSubmission): Promise<AcademicContributor | undefined>;
+  getAcademicContributor(id: string): Promise<AcademicContributor | undefined>;
+  saveAcademicEvaluation(id: string, data: { extractedContent: string; evaluationScore: number; evaluationSummary: string }): Promise<AcademicContributor | undefined>;
   // Login event methods
   createLoginEvent(data: InsertLoginEvent): Promise<LoginEvent>;
   getLoginEvents(limit?: number): Promise<LoginEvent[]>;
@@ -1457,6 +1459,24 @@ export class DatabaseStorage implements IStorage {
     return result[0] ? dbAcademicToAcademic(result[0]) : undefined;
   }
 
+  async getAcademicContributor(id: string): Promise<AcademicContributor | undefined> {
+    const result = await db.select().from(academicContributors).where(eq(academicContributors.id, id));
+    return result[0] ? dbAcademicToAcademic(result[0]) : undefined;
+  }
+
+  async saveAcademicEvaluation(id: string, data: { extractedContent: string; evaluationScore: number; evaluationSummary: string }): Promise<AcademicContributor | undefined> {
+    const result = await db.update(academicContributors)
+      .set({
+        extractedContent: data.extractedContent || null,
+        evaluationScore: data.evaluationScore,
+        evaluationSummary: data.evaluationSummary,
+        evaluatedAt: new Date(),
+      })
+      .where(eq(academicContributors.id, id))
+      .returning();
+    return result[0] ? dbAcademicToAcademic(result[0]) : undefined;
+  }
+
   async createLoginEvent(data: InsertLoginEvent): Promise<LoginEvent> {
     const id = randomUUID();
     const result = await db.insert(loginEvents).values({
@@ -1510,6 +1530,10 @@ function dbAcademicToAcademic(row: typeof academicContributors.$inferSelect): Ac
     submissionTitle: row.submissionTitle ?? undefined,
     submissionContent: row.submissionContent ?? undefined,
     submissionLink: row.submissionLink ?? undefined,
+    extractedContent: row.extractedContent ?? undefined,
+    evaluationScore: row.evaluationScore ?? undefined,
+    evaluationSummary: row.evaluationSummary ?? undefined,
+    evaluatedAt: row.evaluatedAt ? row.evaluatedAt.toISOString() : undefined,
     contactedAt: row.contactedAt ? row.contactedAt.toISOString() : undefined,
     submittedAt: row.submittedAt ? row.submittedAt.toISOString() : undefined,
     createdAt: row.createdAt.toISOString(),
