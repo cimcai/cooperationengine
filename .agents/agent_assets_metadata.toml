@@ -5,4 +5,10 @@ generated = []
 id = "dCEeGl-wbKKbQf-RJtG9J"
 uri = "file://research-summary.md"
 type = "text"
-title = "Cooperation Engine — Research Summary"
+title = "Research Summary (Markdown)"
+
+[[outputs]]
+id = "i-pi7kqQsChlYrYn7TOI5"
+uri = "file://research-summary.zip"
+type = "unspecified"
+title = "Research Summary (Markdown + LaTeX)"
