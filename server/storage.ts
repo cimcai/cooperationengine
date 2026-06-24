@@ -1,6 +1,7 @@
 import { type Session, type Run, type Chatbot, type InsertSession, type InsertRun, type ChatbotResponse, type ArenaMatch, type ArenaRound, type InsertArenaMatch, type ToolkitItem, type InsertToolkitItem, type LeaderboardEntry, type InsertLeaderboardEntry, type ToolkitLeaderboardEntry, type Epoch, type Joke, type InsertJoke, type JokeRating, type InsertJokeRating, type BenchmarkProposal, type InsertBenchmarkProposal, type BenchmarkWeight, type Construct, type InsertConstruct, type PhysioDataPoint, type InsertPhysioBatch, type Wargame, type WargameTurn, type InsertWargame, type NewsletterSubscriber, type InsertNewsletterSubscriber, type StoryRecipient, type InsertStoryRecipient, type LoginEvent, type InsertLoginEvent, type AcademicContributor, type InsertAcademicContributor, type AcademicSubmission, sessions, runs, arenaMatches, wargames, toolkitItems, leaderboardEntries, toolkitLeaderboard, epochs, jokes, jokeRatings, benchmarkProposals, benchmarkWeights, constructs, physioData, newsletterSubscribers, storyRecipients, loginEvents, academicContributors } from "@shared/schema";
 import { runArtifacts } from "@shared/schema";
 import type { RunArtifact } from "./modelClient";
+import { computeProposalHash } from "./proposalProvenance";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, desc, and, sql, ilike, count, inArray, gte, lt } from "drizzle-orm";
@@ -203,6 +204,7 @@ export interface IStorage {
   createJokeRating(data: InsertJokeRating & { epochId: string }): Promise<JokeRating>;
   // Benchmark Proposal methods
   getBenchmarkProposals(): Promise<BenchmarkProposal[]>;
+  getBenchmarkProposalByHash(contentHash: string): Promise<BenchmarkProposal | undefined>;
   createBenchmarkProposal(data: InsertBenchmarkProposal): Promise<BenchmarkProposal>;
   updateBenchmarkProposalStatus(id: string, status: "approved" | "rejected"): Promise<BenchmarkProposal | undefined>;
   // Benchmark Weights methods
@@ -1154,7 +1156,18 @@ export class DatabaseStorage implements IStorage {
 
   async getBenchmarkProposals(): Promise<BenchmarkProposal[]> {
     const results = await db.select().from(benchmarkProposals).orderBy(desc(benchmarkProposals.createdAt));
-    return results.map(row => ({
+    return results.map(row => this.toProposal(row));
+  }
+
+  async getBenchmarkProposalByHash(contentHash: string): Promise<BenchmarkProposal | undefined> {
+    const result = await db.select().from(benchmarkProposals)
+      .where(eq(benchmarkProposals.contentHash, contentHash))
+      .limit(1);
+    return result[0] ? this.toProposal(result[0]) : undefined;
+  }
+
+  private toProposal(row: typeof benchmarkProposals.$inferSelect): BenchmarkProposal {
+    return {
       id: row.id,
       testDescription: row.testDescription,
       promptCount: row.promptCount,
@@ -1162,14 +1175,25 @@ export class DatabaseStorage implements IStorage {
       estimatedDuration: row.estimatedDuration,
       requiredResources: row.requiredResources || undefined,
       outcomeDescription: row.outcomeDescription,
+      socialGoodAlignment: row.socialGoodAlignment || undefined,
       submitterName: row.submitterName || undefined,
       submitterEmail: row.submitterEmail || undefined,
+      citations: row.citations || undefined,
+      source: row.source || undefined,
+      sourceType: row.sourceType || undefined,
+      category: row.category,
       status: row.status as "pending" | "approved" | "rejected",
       createdAt: row.createdAt.toISOString(),
-    }));
+    };
   }
 
   async createBenchmarkProposal(data: InsertBenchmarkProposal): Promise<BenchmarkProposal> {
+    // Dedup (#22): the same proposal content collapses to one row. If this
+    // content was submitted before, return the existing proposal.
+    const contentHash = computeProposalHash(data);
+    const existing = await this.getBenchmarkProposalByHash(contentHash);
+    if (existing) return existing;
+
     const id = randomUUID();
     const result = await db.insert(benchmarkProposals).values({
       id,
@@ -1182,23 +1206,15 @@ export class DatabaseStorage implements IStorage {
       submitterName: data.submitterName,
       submitterEmail: data.submitterEmail,
       citations: data.citations,
+      source: data.source,
+      sourceType: data.sourceType,
+      // Open, growable category set with an "uncategorized" default (#22).
+      category: data.category || "uncategorized",
+      contentHash,
       status: "pending",
     }).returning();
     
-    return {
-      id: result[0].id,
-      testDescription: result[0].testDescription,
-      promptCount: result[0].promptCount,
-      aiPrep: result[0].aiPrep,
-      estimatedDuration: result[0].estimatedDuration,
-      requiredResources: result[0].requiredResources || undefined,
-      outcomeDescription: result[0].outcomeDescription,
-      submitterName: result[0].submitterName || undefined,
-      submitterEmail: result[0].submitterEmail || undefined,
-      citations: result[0].citations || undefined,
-      status: result[0].status as "pending" | "approved" | "rejected",
-      createdAt: result[0].createdAt.toISOString(),
-    };
+    return this.toProposal(result[0]);
   }
 
   async updateBenchmarkProposalStatus(id: string, status: "approved" | "rejected"): Promise<BenchmarkProposal | undefined> {
@@ -1209,20 +1225,7 @@ export class DatabaseStorage implements IStorage {
     
     if (result.length === 0) return undefined;
     
-    return {
-      id: result[0].id,
-      testDescription: result[0].testDescription,
-      promptCount: result[0].promptCount,
-      aiPrep: result[0].aiPrep,
-      estimatedDuration: result[0].estimatedDuration,
-      requiredResources: result[0].requiredResources || undefined,
-      outcomeDescription: result[0].outcomeDescription,
-      submitterName: result[0].submitterName || undefined,
-      submitterEmail: result[0].submitterEmail || undefined,
-      citations: result[0].citations || undefined,
-      status: result[0].status as "pending" | "approved" | "rejected",
-      createdAt: result[0].createdAt.toISOString(),
-    };
+    return this.toProposal(result[0]);
   }
 
   // Default benchmark test definitions - actual test types

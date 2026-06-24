@@ -635,9 +635,18 @@ export const benchmarkProposals = pgTable("benchmark_proposals", {
   submitterName: text("submitter_name"),
   submitterEmail: text("submitter_email"),
   citations: text("citations"),
+  // Provenance + dedup (#22): where an extracted proposal came from, its open
+  // (growable) category defaulting to "uncategorized", and a content hash so the
+  // same submission twice collapses to one row.
+  source: text("source"),
+  sourceType: varchar("source_type", { length: 32 }),
+  category: varchar("category", { length: 64 }).notNull().default("uncategorized"),
+  contentHash: varchar("content_hash", { length: 64 }),
   status: varchar("status", { length: 20 }).notNull().$type<"pending" | "approved" | "rejected">().default("pending"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  contentHashIdx: index("benchmark_proposals_content_hash_idx").on(table.contentHash),
+}));
 
 export interface BenchmarkProposal {
   id: string;
@@ -651,6 +660,9 @@ export interface BenchmarkProposal {
   submitterName?: string;
   submitterEmail?: string;
   citations?: string;
+  source?: string;
+  sourceType?: string;
+  category: string;
   status: "pending" | "approved" | "rejected";
   createdAt: string;
 }
@@ -666,6 +678,9 @@ export const insertBenchmarkProposalSchema = z.object({
   submitterName: z.string().optional(),
   submitterEmail: z.string().email().optional().or(z.literal("")),
   citations: z.string().optional(),
+  source: z.string().optional(),
+  sourceType: z.string().optional(),
+  category: z.string().optional(),
 });
 
 export type InsertBenchmarkProposal = z.infer<typeof insertBenchmarkProposalSchema>;
