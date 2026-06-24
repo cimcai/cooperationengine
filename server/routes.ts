@@ -15,6 +15,7 @@ import cron from "node-cron";
 import { ESCALATION_LADDER, scenarioConfigs, escalationBeats } from "./wargameConfig";
 import { ModelClient, replayRun, type ArtifactStore, type ModelCallContext } from "./modelClient";
 import { deriveEthicalSpace } from "@shared/ethicalSpace";
+import { parseHistoryQuery, buildHistoryResponse } from "./historyQuery";
 
 // Read app version from package.json once at startup
 let APP_VERSION = "1.0.0";
@@ -1494,19 +1495,9 @@ export async function registerRoutes(
   // Get history (runs with sessions)
   app.get("/api/history", async (req, res) => {
     try {
-      const rawPage = parseInt(String(req.query.page || "1"), 10);
-      const rawLimit = parseInt(String(req.query.limit || "50"), 10);
-      const page = isNaN(rawPage) ? 1 : Math.max(1, rawPage);
-      const limit = isNaN(rawLimit) ? 50 : Math.min(500, Math.max(1, rawLimit));
-      const search = typeof req.query.search === "string" && req.query.search.trim() ? req.query.search.trim() : undefined;
+      const { page, limit, search } = parseHistoryQuery(req.query);
       const result = await storage.getRunsHistory({ page, limit, search });
-      res.json({
-        items: result.items,
-        total: result.total,
-        page,
-        limit,
-        totalPages: Math.ceil(result.total / limit),
-      });
+      res.json(buildHistoryResponse(result, page, limit));
     } catch (error) {
       console.error("Error fetching history:", error);
       res.status(500).json({ error: "Failed to fetch history" });
