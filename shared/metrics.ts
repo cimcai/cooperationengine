@@ -127,3 +127,55 @@ export function mergeStats(a: Stat, b: Stat): Stat {
     max: Math.max(a.max, b.max),
   });
 }
+
+/**
+ * Fold per-observation values into one Stat per MetricName. Observations that
+ * serialize to the same `metricKey` (same metric under the same condition) are
+ * aggregated together. This is the "many runs -> one Stat per (metric,
+ * condition)" step from #12: until now the schema stored no metric as an
+ * aggregate across runs, only recomputed it from `responses` each time.
+ */
+export function aggregateByMetric(
+  observations: Array<{ name: MetricName; value: number }>,
+): Map<string, Stat> {
+  const out = new Map<string, Stat>();
+  for (const { name, value } of observations) {
+    const key = metricKey(name);
+    out.set(key, addToStat(out.get(key) ?? emptyStat(name), value));
+  }
+  return out;
+}
+
+/**
+ * Signed difference between two Stats of the same metric, with a gate that
+ * separates a real shift from sampling noise (#12's "statistical delta").
+ * `stderr` is the standard error of the difference of means; `z` is the change
+ * in those units; `significant` is true only when |z| clears `threshold`
+ * (default 2, ~95%). Comparing a metric before/after a change (pre-prompt vs
+ * scenario #18, tier A vs tier B #17) reduces to one call.
+ */
+export type StatDelta = {
+  meanDelta: number; // b.mean - a.mean
+  stderr: number;    // standard error of the difference of means
+  z: number;         // meanDelta / stderr (0 when there is no spread)
+  significant: boolean;
+};
+
+export function statDelta(a: Stat, b: Stat, threshold = 2): StatDelta {
+  const meanDelta = b.mean - a.mean;
+  // SE of the difference of two independent sample means: sqrt(varA/nA + varB/nB).
+  const seA = a.count > 0 ? a.variance / a.count : 0;
+  const seB = b.count > 0 ? b.variance / b.count : 0;
+  const stderr = Math.sqrt(seA + seB);
+  // stderr 0 means both groups are perfectly tight: any real mean gap is
+  // infinitely separated from noise; an equal gap of 0 is just no change.
+  const z =
+    stderr > 0
+      ? meanDelta / stderr
+      : meanDelta === 0
+        ? 0
+        : meanDelta > 0
+          ? Infinity
+          : -Infinity;
+  return { meanDelta, stderr, z, significant: Math.abs(z) >= threshold };
+}

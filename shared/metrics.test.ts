@@ -7,6 +7,8 @@ import {
   addToStat,
   aggregateStat,
   mergeStats,
+  aggregateByMetric,
+  statDelta,
 } from "./metrics.ts";
 
 const near = (a: number, b: number, eps = 1e-9) =>
@@ -85,4 +87,64 @@ test("merging an empty Stat is a no-op", () => {
   const s = aggregateStat(name, [1, 0, 1]);
   assert.deepEqual(mergeStats(emptyStat(name), s), { ...s, name });
   assert.deepEqual(mergeStats(s, emptyStat(name)), s);
+});
+
+test("aggregateByMetric folds observations into one Stat per key", () => {
+  const frontier: MetricName = { name: "coop", context: { tier: "frontier" } };
+  const small: MetricName = { name: "coop", context: { tier: "small" } };
+  const m = aggregateByMetric([
+    { name: frontier, value: 1 },
+    { name: frontier, value: 0 },
+    { name: small, value: 1 },
+  ]);
+  assert.equal(m.size, 2);
+  const f = m.get(metricKey(frontier))!;
+  assert.equal(f.count, 2);
+  near(f.mean, 0.5);
+  assert.equal(m.get(metricKey(small))!.count, 1);
+});
+
+test("aggregateByMetric keys by condition, not insertion order", () => {
+  const a: MetricName = { name: "coop", context: { tier: "x", cat: "y" } };
+  const b: MetricName = { name: "coop", context: { cat: "y", tier: "x" } };
+  const m = aggregateByMetric([
+    { name: a, value: 1 },
+    { name: b, value: 0 },
+  ]);
+  assert.equal(m.size, 1); // same key despite different context order
+  assert.equal(m.get(metricKey(a))!.count, 2);
+});
+
+test("statDelta flags a real shift as significant", () => {
+  const n: MetricName = { name: "coop" };
+  const a = aggregateStat(n, [0, 0, 0, 0, 0, 0, 0, 1, 0, 0]); // mean 0.1
+  const b = aggregateStat(n, [1, 1, 1, 1, 1, 1, 1, 0, 1, 1]); // mean 0.9
+  const d = statDelta(a, b);
+  near(d.meanDelta, 0.8);
+  assert.ok(d.z > 2 && d.significant);
+});
+
+test("statDelta treats overlapping distributions as noise", () => {
+  const n: MetricName = { name: "coop" };
+  const a = aggregateStat(n, [0, 1, 0, 1, 0]); // mean 0.4
+  const b = aggregateStat(n, [0, 1, 1, 0, 1]); // mean 0.6
+  const d = statDelta(a, b);
+  assert.equal(d.significant, false);
+});
+
+test("statDelta: perfect separation is infinitely significant", () => {
+  const n: MetricName = { name: "coop" };
+  const d = statDelta(aggregateStat(n, [0, 0, 0]), aggregateStat(n, [1, 1, 1]));
+  assert.equal(d.stderr, 0);
+  assert.equal(d.z, Infinity);
+  assert.ok(d.significant);
+});
+
+test("statDelta: no change is not significant", () => {
+  const n: MetricName = { name: "coop" };
+  const s = aggregateStat(n, [0, 1, 0, 1]);
+  const d = statDelta(s, s);
+  assert.equal(d.meanDelta, 0);
+  assert.equal(d.z, 0);
+  assert.equal(d.significant, false);
 });
