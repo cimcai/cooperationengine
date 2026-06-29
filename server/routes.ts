@@ -14,6 +14,7 @@ import net from "net";
 import cron from "node-cron";
 import { ESCALATION_LADDER, scenarioConfigs, escalationBeats } from "./wargameConfig";
 import { ModelClient, replayRun, type ArtifactStore, type ModelCallContext } from "./modelClient";
+import { deriveEthicalSpace } from "@shared/ethicalSpace";
 
 // Read app version from package.json once at startup
 let APP_VERSION = "1.0.0";
@@ -1407,6 +1408,26 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching run:", error);
       res.status(500).json({ error: "Failed to fetch run" });
+    }
+  });
+
+  // Summary of the ethical space (issue #19). Derive the ethical references from
+  // what the chatbots actually said in their justifications, rather than asking a
+  // model to state its ethics (which is gamable). Each cited reason is pinned to a
+  // verbatim span; regions and tensions are derived bottom-up, not imposed.
+  app.get("/api/runs/:id/ethical-space", async (req, res) => {
+    try {
+      const run = await storage.getRun(req.params.id);
+      if (!run) {
+        return res.status(404).json({ error: "Run not found" });
+      }
+      const justifications = run.responses
+        .filter((r) => !r.error && r.content)
+        .map((r) => ({ id: r.chatbotId, content: r.content }));
+      res.json(deriveEthicalSpace(justifications));
+    } catch (error) {
+      console.error("Error deriving ethical space:", error);
+      res.status(500).json({ error: "Failed to derive ethical space" });
     }
   });
 
