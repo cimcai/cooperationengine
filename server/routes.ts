@@ -2066,28 +2066,31 @@ export async function registerRoutes(
       // Send email notification
       if (resend) {
         try {
+          const p = parsed.data;
+          const optionalSection = (label: string, value?: string) =>
+            value ? `<h3>${label}</h3><p>${value}</p>` : "";
           await resend.emails.send({
             from: "Cooperation Engine <onboarding@resend.dev>",
             to: PROPOSAL_NOTIFICATION_EMAILS,
-            subject: `New Benchmark Proposal: ${parsed.data.testName}`,
+            subject: `New Benchmark Proposal from ${p.submitterName || "anonymous"}`,
             html: `
               <h2>New Benchmark Proposal Submitted</h2>
-              <p><strong>Test Name:</strong> ${parsed.data.testName}</p>
-              <p><strong>Submitter:</strong> ${parsed.data.submitterName} (${parsed.data.submitterEmail})</p>
-              <p><strong>Category:</strong> ${parsed.data.category}</p>
-              <h3>Description</h3>
-              <p>${parsed.data.description}</p>
-              <h3>Research Justification</h3>
-              <p>${parsed.data.researchJustification}</p>
-              <h3>Prompt Template</h3>
-              <pre style="background: #f5f5f5; padding: 12px; border-radius: 4px;">${parsed.data.promptTemplate}</pre>
-              <h3>Scoring Methodology</h3>
-              <p>${parsed.data.scoringMethodology}</p>
+              <p><strong>Submitter:</strong> ${p.submitterName || "anonymous"}${p.submitterEmail ? ` (${p.submitterEmail})` : ""}</p>
+              <p><strong>Prompts:</strong> ${p.promptCount} &nbsp; <strong>Estimated duration:</strong> ${p.estimatedDuration}</p>
+              <h3>Test description</h3>
+              <p>${p.testDescription}</p>
+              <h3>AI preparation</h3>
+              <p>${p.aiPrep}</p>
+              <h3>Outcome</h3>
+              <p>${p.outcomeDescription}</p>
+              ${optionalSection("Required resources", p.requiredResources)}
+              ${optionalSection("Social-good alignment", p.socialGoodAlignment)}
+              ${optionalSection("Citations", p.citations)}
               <hr />
               <p><a href="${process.env.REPLIT_DEV_DOMAIN ? 'https://' + process.env.REPLIT_DEV_DOMAIN : ''}/proposals">Review this proposal in the admin panel</a></p>
             `,
           });
-          console.log("Email notification sent for new proposal:", parsed.data.testName);
+          console.log("Email notification sent for new proposal from:", p.submitterName || "anonymous");
         } catch (emailError) {
           console.error("Failed to send email notification:", emailError);
         }
