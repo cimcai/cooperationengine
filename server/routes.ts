@@ -16,6 +16,7 @@ import { ESCALATION_LADDER, scenarioConfigs, escalationBeats } from "./wargameCo
 import { ModelClient, replayRun, type ArtifactStore, type ModelCallContext } from "./modelClient";
 import { deriveEthicalSpace } from "@shared/ethicalSpace";
 import { parseHistoryQuery, buildHistoryResponse } from "./historyQuery";
+import { parseEvaluation } from "./evaluationParse";
 
 // Read app version from package.json once at startup
 let APP_VERSION = "1.0.0";
@@ -868,9 +869,7 @@ async function fetchAndExtractText(url: string): Promise<string> {
   return text.trim();
 }
 
-function stripJsonFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-}
+// stripJsonFence + evaluator-output parsing now live in ./evaluationParse (Issue #22)
 
 // Ask an AI model to rate a contribution 1–10 with a short written assessment.
 async function evaluateContribution(title: string, text: string): Promise<{ score: number; summary: string }> {
@@ -886,14 +885,10 @@ Title: ${title}
 Contribution:
 ${text}`;
   const result = await runModel(EVALUATOR_PROVIDER, EVALUATOR_MODEL, [{ role: "user", content: prompt }]);
-  let parsed: any = null;
-  try { parsed = JSON.parse(stripJsonFence(result.content)); } catch { parsed = null; }
-  let score = parsed && typeof parsed.score === "number" ? Math.round(parsed.score) : NaN;
-  if (!Number.isFinite(score)) score = 1;
-  score = Math.max(1, Math.min(10, score));
-  const summary = parsed?.summary
-    ? String(parsed.summary)
-    : (result.content || "No summary produced.").slice(0, 2000);
+  const { score, summary, parseOk } = parseEvaluation(result.content);
+  if (!parseOk) {
+    console.warn(`[evaluateContribution] evaluator output was not valid JSON with a numeric score; score defaulted to 1 (title: ${title.slice(0, 80)})`);
+  }
   return { score, summary };
 }
 
