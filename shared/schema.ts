@@ -29,6 +29,10 @@ export const runs = pgTable("runs", {
   sessionId: varchar("session_id").notNull().references(() => sessions.id),
   chatbotIds: jsonb("chatbot_ids").notNull().$type<string[]>(),
   status: varchar("status", { length: 20 }).notNull().$type<"pending" | "running" | "completed" | "failed">(),
+  // How the prompts were presented to the model (#18). Existing runs default to
+  // "pre-prompt" (framing mixed into the turn) — the baseline a pre-prompt-
+  // separated style can be compared against.
+  promptStyle: varchar("prompt_style", { length: 24 }).notNull().default("pre-prompt"),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
   responses: jsonb("responses").notNull().$type<{
@@ -285,6 +289,7 @@ export interface Run {
   sessionId: string;
   chatbotIds: string[];
   status: "pending" | "running" | "completed" | "failed";
+  promptStyle: string;
   startedAt: string;
   completedAt?: string;
   responses: ChatbotResponse[];
@@ -314,6 +319,7 @@ export const insertSessionSchema = z.object({
 export const insertRunSchema = z.object({
   sessionId: z.string(),
   chatbotIds: z.array(z.string()).min(1, "Select at least one chatbot"),
+  promptStyle: z.string().optional(),
 });
 
 export type InsertSession = z.infer<typeof insertSessionSchema>;

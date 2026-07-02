@@ -269,6 +269,7 @@ function dbRunToRun(row: typeof runs.$inferSelect): Run {
     sessionId: row.sessionId,
     chatbotIds: row.chatbotIds || [],
     status: row.status,
+    promptStyle: row.promptStyle,
     startedAt: row.startedAt.toISOString(),
     completedAt: row.completedAt?.toISOString(),
     responses: row.responses || [],
@@ -490,6 +491,7 @@ export class DatabaseStorage implements IStorage {
       sessionId: data.sessionId,
       chatbotIds: data.chatbotIds,
       status: "pending",
+      promptStyle: data.promptStyle || "pre-prompt",
       responses: [],
     }).returning();
     return dbRunToRun(result[0]);
