@@ -15,6 +15,7 @@ import ResultsPage from "@/pages/results";
 import BenchmarkPage from "@/pages/benchmark";
 import BenchmarkSubmissionPage from "@/pages/benchmark-submission";
 import ContributePage from "@/pages/contribute";
+import SubmitPage from "@/pages/submit";
 import ProposalsAdminPage from "@/pages/proposals-admin";
 import ArenaPage from "@/pages/arena";
 import WargamesPage from "@/pages/wargames";
@@ -77,6 +78,9 @@ function AppRouter() {
   }
   if (location.startsWith("/contribute/")) {
     return <ContributePage />;
+  }
+  if (location === "/submit") {
+    return <SubmitPage />;
   }
   
   // All other routes require authentication

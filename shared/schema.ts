@@ -915,3 +915,18 @@ export const academicSubmissionSchema = z.object({
 );
 
 export type AcademicSubmission = z.infer<typeof academicSubmissionSchema>;
+
+// Public open submission (no invite token) — anyone can send a link or paste a contribution.
+export const publicSubmissionSchema = z.object({
+  title: z.string().max(300).optional().or(z.literal("")),
+  content: z.string().max(50000).optional().or(z.literal("")),
+  link: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
+  name: z.string().max(200).optional().or(z.literal("")),
+  email: z.string().email("Please enter a valid email address").optional().or(z.literal("")),
+  affiliation: z.string().max(300).optional().or(z.literal("")),
+}).refine(
+  (d) => (d.content?.trim().length ?? 0) > 0 || (d.link?.trim().length ?? 0) > 0,
+  { message: "Please add a link or paste your contribution", path: ["link"] },
+);
+
+export type PublicSubmission = z.infer<typeof publicSubmissionSchema>;

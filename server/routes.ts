@@ -1,7 +1,7 @@
 import type { Express, Response as ExpressResponse } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
-import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, insertStoryRecipientSchema, insertAcademicContributorSchema, academicSubmissionSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
+import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, insertStoryRecipientSchema, insertAcademicContributorSchema, academicSubmissionSchema, publicSubmissionSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
@@ -722,6 +722,16 @@ async function runModel(
       default: throw new Error(`Unknown provider: ${provider}`);
     }
   }, ctx);
+}
+
+// In-memory rate limiter for the public submission endpoint (per-IP, sliding window).
+const publicSubmitHits = new Map<string, number[]>();
+function publicSubmitRateLimited(ip: string, max = 6, windowMs = 60 * 60 * 1000): boolean {
+  const now = Date.now();
+  const recent = (publicSubmitHits.get(ip) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= max) { publicSubmitHits.set(ip, recent); return true; }
+  recent.push(now); publicSubmitHits.set(ip, recent);
+  return false;
 }
 
 // ── Academic contribution parsing + AI rating ───────────────────────────────
@@ -2957,6 +2967,42 @@ export async function registerRoutes(
       res.json({ ok: true, message: "Thank you — your contribution has been received." });
     } catch (err) {
       console.error("Academic submission error:", err);
+      res.status(500).json({ error: "Failed to save your contribution" });
+    }
+  });
+
+  // Public: open submission — anyone can send a link or paste, no invite token needed.
+  // Reuses the academic-contribution pipeline (fetch → extract → AI-rate → queue for benchmarking).
+  app.post("/api/submit", async (req, res) => {
+    const parsed = publicSubmissionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+    const ip = ((req.headers["x-forwarded-for"] as string) || req.ip || "unknown").split(",")[0].trim();
+    if (publicSubmitRateLimited(ip)) {
+      return res.status(429).json({ error: "Too many submissions from here — please try again in a little while." });
+    }
+    const { title, content, link, name, email, affiliation } = parsed.data;
+    try {
+      // Attach to an existing contributor if this email already submitted; otherwise create one.
+      let academic = email?.trim()
+        ? await storage.getAcademicContributorByEmail(email.trim())
+        : undefined;
+      if (!academic) {
+        academic = await storage.createAcademicContributor({
+          name: name?.trim() || "Public submission",
+          email: email?.trim() || `anon-${globalThis.crypto.randomUUID()}@public.submission`,
+          affiliation: affiliation?.trim() || undefined,
+        });
+      }
+      await storage.saveAcademicSubmission(academic.submissionToken, {
+        title: title?.trim() || "(untitled public submission)",
+        content: content?.trim() || "",
+        link: link?.trim() || "",
+      });
+      // Parse + rate in the background so the sender gets an instant confirmation.
+      runAcademicEvaluation(academic.id).catch((err) => console.error("Public auto-evaluation failed:", err));
+      res.json({ ok: true, message: "Thank you — your contribution has been received and is queued for review." });
+    } catch (err) {
+      console.error("Public submission error:", err);
       res.status(500).json({ error: "Failed to save your contribution" });
     }
   });
