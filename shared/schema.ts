@@ -117,6 +117,11 @@ export interface ArenaRound {
   player2Reasoning?: string;
   player1LatencyMs: number;
   player2LatencyMs: number;
+  // False when the model's response contained no unambiguous move label and
+  // the engine fell back to the default move (defect-equivalent). Optional so
+  // rounds recorded before this field existed stay valid. See issue #8.
+  player1ParseOk?: boolean;
+  player2ParseOk?: boolean;
 }
 
 // Arena match interface
