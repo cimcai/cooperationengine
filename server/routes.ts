@@ -1,6 +1,7 @@
 import type { Express, Response as ExpressResponse } from "express";
 import { createServer, type Server } from "http";
 import { storage, availableChatbots } from "./storage";
+import { extractMove } from "./arenaMoves";
 import { insertSessionSchema, insertRunSchema, insertArenaMatchSchema, insertWargameSchema, insertToolkitItemSchema, insertBenchmarkProposalSchema, insertConstructSchema, insertPhysioBatchSchema, insertNewsletterSubscriberSchema, insertStoryRecipientSchema, insertAcademicContributorSchema, academicSubmissionSchema, type ArenaRound, type WargameTurn, type AICallResult, type TokenUsage, type NewsletterSubscriber } from "@shared/schema";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
@@ -3414,15 +3415,8 @@ You MUST respond with exactly one of these labels: ${move1Label} or ${move2Label
 You may optionally add brief reasoning after your move on a new line.`;
   }
 
-  // Extract move from response
-  function extractMove(response: string): string | null {
-    const upperResponse = response.toUpperCase().trim();
-    if (upperResponse.startsWith(move1Label)) return move1Label;
-    if (upperResponse.startsWith(move2Label)) return move2Label;
-    if (upperResponse.includes(move1Label)) return move1Label;
-    if (upperResponse.includes(move2Label)) return move2Label;
-    return null;
-  }
+  // Extract move from response — see server/arenaMoves.ts for the parsing
+  // rules and the failure modes the old inline parser had (issue #8).
 
   // Calculate payoff
   function calculatePayoff(p1Move: string, p2Move: string): [number, number] {
@@ -3471,8 +3465,13 @@ You may optionally add brief reasoning after your move on a new line.`;
       const p1Response = p1Timed.content;
       const p2Response = p2Timed.content;
 
-      const p1Move = extractMove(p1Response) || move2Label;
-      const p2Move = extractMove(p2Response) || move2Label;
+      // Unparseable/ambiguous responses keep the historical default (move2,
+      // the defect-equivalent) so existing run semantics don't change — but
+      // the failure is now recorded per player instead of silently scored.
+      const p1Parsed = extractMove(p1Response, gameConfig.moves);
+      const p2Parsed = extractMove(p2Response, gameConfig.moves);
+      const p1Move = p1Parsed.move ?? move2Label;
+      const p2Move = p2Parsed.move ?? move2Label;
 
       const [p1Points, p2Points] = calculatePayoff(p1Move, p2Move);
       p1TotalScore += p1Points;
@@ -3497,6 +3496,8 @@ You may optionally add brief reasoning after your move on a new line.`;
         player2Reasoning: p2Response.split("\n").slice(1).join("\n").trim() || undefined,
         player1LatencyMs: p1LatencyMs,
         player2LatencyMs: p2LatencyMs,
+        player1ParseOk: p1Parsed.parseOk,
+        player2ParseOk: p2Parsed.parseOk,
       };
 
       rounds.push(roundData);
